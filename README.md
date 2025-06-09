@@ -60,7 +60,7 @@ Three stunning nebulae rendered with multi-layered particle systems inspired by 
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/yourusername/universe-simulation.git
+   git clone https://github.com/champi-dev/universe-simulation.git
    cd universe-simulation
    ```
 
@@ -179,17 +179,6 @@ const myPlanet = {
 - Click on the canvas first to capture mouse
 - Make sure the window has focus
 - Check if another app is intercepting keys
-
-## 🔮 Future Enhancements
-
-- [ ] Asteroid mining mini-game
-- [ ] Wormhole travel between galaxies
-- [ ] Planet surface generation
-- [ ] Constellation mapping
-- [ ] VR support
-- [ ] Multiplayer exploration
-- [ ] Educational mode with facts
-- [ ] Custom spacecraft models
 
 ## 📚 Learning Resources
 
