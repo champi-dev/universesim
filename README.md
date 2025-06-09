@@ -1,6 +1,7 @@
 # 🌌 Universe Simulation: Your Personal Cosmos Explorer
 
 > _"The universe is not only queerer than we suppose, but queerer than we can suppose."_ - J.B.S. Haldane
+
 > Welcome to your own interactive universe! This isn't just another space visualization - it's a fully explorable cosmos that scales from the surface of planets to the edge of the observable universe. Built with Three.js and React, this simulation puts you in the pilot seat of your own cosmic journey.
 
 > [Live Demo](https://universesim.vercel.app/)
