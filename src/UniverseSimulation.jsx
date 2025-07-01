@@ -1571,6 +1571,35 @@ const UniverseSimulation = () => {
       document.addEventListener("keydown", keydownHandler);
       document.addEventListener("keyup", keyupHandler);
 
+      // Desktop scroll handling - matches mobile pinch behavior
+      renderer.domElement.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        
+        const direction = cameraState.current.lookAt
+          .clone()
+          .sub(cameraState.current.position)
+          .normalize();
+        
+        const currentDist = cameraState.current.position.length();
+        
+        // Scale movement speed based on current distance (same as mobile pinch)
+        const baseSpeed = currentDist < 100
+          ? currentDist * 0.1
+          : currentDist < 1000
+          ? currentDist * 1
+          : currentDist < 10000
+          ? currentDist * 10
+          : currentDist < 100000
+          ? currentDist * 100
+          : currentDist * 1000;
+        
+        // Normalize wheel delta and apply movement
+        const wheelDirection = e.deltaY > 0 ? 1 : -1; // Scroll down = zoom out, scroll up = zoom in
+        const movement = direction.clone().multiplyScalar(wheelDirection * baseSpeed * 0.01);
+        
+        cameraState.current.velocity.add(movement);
+      });
+
       const updateVelocity = () => {
         if (!isPointerLocked) return;
 
