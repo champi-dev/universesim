@@ -10,11 +10,8 @@ const UniverseSimulation = () => {
   const frameRef = useRef(0);
 
   const [timeSpeed, setTimeSpeed] = useState(1);
-  
-  // Debug logging for state changes
-  console.log("UniverseSimulation render - timeSpeed:", timeSpeed, typeof timeSpeed);
   const [currentScale, setCurrentScale] = useState("atmosphere");
-  const [, setLodLevel] = useState(0);
+  const [lodLevel, setLodLevel] = useState(0);
   const [isMobile] = useState(
     /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
   );
@@ -862,6 +859,7 @@ const UniverseSimulation = () => {
         universeSystem.galaxies.set(galaxyId, galaxyData);
       }
       
+      console.log(`Generated ${universeSystem.galaxies.size} galaxies throughout the universe`);
     };
 
     // ========== PROCEDURAL STELLAR SYSTEM GENERATOR ==========
@@ -942,6 +940,7 @@ const UniverseSimulation = () => {
         
         if (isClose && !galaxy.isLoaded) {
           // Load galaxy stellar systems
+          console.log(`Loading detailed systems for ${galaxyId}`);
           
           for (let s = 0; s < Math.min(galaxy.starCount, 1000); s++) { // Limit for performance
             const starId = `${galaxyId}_star_${s}`;
@@ -985,6 +984,7 @@ const UniverseSimulation = () => {
           galaxy.stars.clear();
           galaxy.isLoaded = false;
           universeSystem.loadedGalaxies.delete(galaxyId);
+          console.log(`Unloaded ${galaxyId} to save memory`);
         }
       });
       
@@ -997,6 +997,7 @@ const UniverseSimulation = () => {
           
           if (isStarClose && !universeSystem.loadedStars.has(starId)) {
             // Create visible stellar system objects
+            console.log(`Loading stellar system: ${starId}`);
             universeSystem.loadedStars.set(starId, stellarSystem);
             
             // Check for planetary details
@@ -1008,6 +1009,7 @@ const UniverseSimulation = () => {
               const isPlanetClose = universeSystem.checkDistance(cameraPosition, planetWorldPos, PLANET_DETAIL_DISTANCE);
               
               if (isPlanetClose && !universeSystem.loadedPlanets.has(planet.id)) {
+                console.log(`Loading planetary system: ${planet.id}`);
                 universeSystem.loadedPlanets.set(planet.id, planet);
               }
             });
@@ -1052,7 +1054,7 @@ const UniverseSimulation = () => {
             .sub(planet.position)
             .normalize();
           const newPosition = planet.position.clone()
-            .add(awayDirection.multiplyScalar(planet.userData.visualRadius * 1.5));
+            .add(awayDirection.multiplyScalar(planet.userData.radius * 1.5));
           
           cameraState.current.position.copy(newPosition);
           cameraState.current.velocity.set(0, 0, 0); // Stop movement
@@ -3827,12 +3829,9 @@ const UniverseSimulation = () => {
 
     // O(1) LOD System with Improved Planetary Entry Detection
     const updateLODSystem = () => {
-      const distance = camera.position.length() / 63241; // Convert AU to light-years (1 ly = 63241 AU)
+      const distance = camera.position.length(); // Distance from origin in light-years
       let newLodLevel = 0;
       let newScale = "galactic";
-
-      // O(1) Infinite Detail System - detail levels array
-      const detailLevels = [1024, 512, 256, 128, 64, 32, 16, 8];
 
       // Update universe details based on camera position
       updateUniverseDetails(camera.position);
@@ -3844,7 +3843,7 @@ const UniverseSimulation = () => {
 
       planets.forEach((planet) => {
         const planetDistance = camera.position.distanceTo(planet.position);
-        const planetRadius = planet.userData.visualRadius;
+        const planetRadius = planet.userData.radius;
         const entryRadius = planetRadius * planetarySystem.current.entryThreshold;
         
         // Track closest planet for debugging
@@ -3856,14 +3855,16 @@ const UniverseSimulation = () => {
         // Check if camera is within entry threshold
         if (planetDistance < entryRadius) {
           enteredPlanet = planet;
+          console.log(`Camera within ${planet.userData.name} entry zone: ${planetDistance.toFixed(2)} < ${entryRadius.toFixed(2)}`);
         }
       });
 
       // Debug: Show closest planet info
       if (closestPlanet && !planetarySystem.current.isInsidePlanet) {
         const debugDistance = camera.position.distanceTo(closestPlanet.position);
-        const debugRadius = closestPlanet.userData.visualRadius * planetarySystem.current.entryThreshold;
+        const debugRadius = closestPlanet.userData.radius * planetarySystem.current.entryThreshold;
         if (debugDistance < debugRadius * 2) { // Only log when getting close
+          console.log(`Approaching ${closestPlanet.userData.name}: distance ${debugDistance.toFixed(2)}, entry at ${debugRadius.toFixed(2)}`);
         }
       }
 
@@ -3888,7 +3889,7 @@ const UniverseSimulation = () => {
         scene.add(planetarySky);
         
         // Lock camera to surface
-        const planetRadius = enteredPlanet.userData.visualRadius;
+        const planetRadius = enteredPlanet.userData.radius;
         const cameraDirection = camera.position.clone().sub(enteredPlanet.position).normalize();
         const surfacePoint = enteredPlanet.position.clone()
           .add(cameraDirection.multiplyScalar(planetRadius + 0.002));
@@ -3908,7 +3909,7 @@ const UniverseSimulation = () => {
       else if (planetarySystem.current.isInsidePlanet && planetarySystem.current.currentPlanet) {
         const currentPlanet = planetarySystem.current.currentPlanet;
         const currentDistance = camera.position.distanceTo(currentPlanet.position);
-        const exitRadius = currentPlanet.userData.visualRadius * planetarySystem.current.exitThreshold;
+        const exitRadius = currentPlanet.userData.radius * planetarySystem.current.exitThreshold;
         
         if (currentDistance > exitRadius && !enteredPlanet) {
           console.log(`🚀 AUTO-EXITING PLANET: ${currentPlanet.userData.name} (distance: ${currentDistance.toFixed(2)} > ${exitRadius.toFixed(2)})`);
@@ -3939,7 +3940,6 @@ const UniverseSimulation = () => {
 
       // Only update if LOD level changed (O(1) optimization)
       if (newLodLevel !== cameraState.current.lastLodLevel) {
-        const currentDetail = detailLevels[newLodLevel] || 8;
         setCurrentScale(newScale);
         setLodLevel(newLodLevel);
         cameraState.current.lastLodLevel = newLodLevel;
@@ -3948,165 +3948,54 @@ const UniverseSimulation = () => {
         const fogDensities = [0.001, 0.0001, 0.00003, 0.00001, 0.000001, 0.0000001, 0.00000001, 0.000000001];
         scene.fog.density = planetarySystem.current.isInsidePlanet ? 0.0001 : fogDensities[newLodLevel];
 
-        // O(1) Infinite Detail Visibility System
-        // Everything is always visible with dynamic quality scaling
-        
-        // Atmospheric detail - always visible with adaptive quality
+        // LOD visibility switching (O(1) per object type)
+        // Atmospheric detail (only visible when very close)
         if (lodObjects.current.atmosphere) {
-          lodObjects.current.atmosphere.visible = !planetarySystem.current.isInsidePlanet;
-          // Scale atmospheric complexity based on distance
-          if (lodObjects.current.atmosphere.userData.materials) {
-            const atmosphereQuality = Math.max(0.1, Math.min(2.0, currentDetail / 64));
-            lodObjects.current.atmosphere.userData.materials.forEach(material => {
-              if (material.uniforms && material.uniforms.quality) {
-                material.uniforms.quality.value = atmosphereQuality;
-              }
-            });
-          }
+          lodObjects.current.atmosphere.visible = newLodLevel <= 1 && !planetarySystem.current.isInsidePlanet;
         }
 
-        // Planetary objects - always visible with adaptive detail
+        // Planetary objects (visible in close to orbital scales, hidden when inside)
         planets.forEach((planet) => {
-          planet.visible = !planetarySystem.current.isInsidePlanet;
-          // Apply distance-based geometry LOD
-          const planetDistance = camera.position.distanceTo(planet.position);
-          const geometryDetail = Math.max(8, Math.min(128, 10000 / planetDistance));
-          
-          if (planet.geometry && planet.geometry.parameters) {
-            // Dynamically adjust sphere segments for performance
-            const targetSegments = Math.floor(geometryDetail);
-            if (planet.userData.lastSegments !== targetSegments) {
-              planet.userData.lastSegments = targetSegments;
-              // Only rebuild geometry if significantly different
-              if (Math.abs(targetSegments - (planet.geometry.parameters.widthSegments || 32)) > 8) {
-                const newGeometry = new THREE.SphereGeometry(
-                  planet.userData.visualRadius,
-                  Math.max(8, targetSegments),
-                  Math.max(6, targetSegments / 2)
-                );
-                planet.geometry.dispose();
-                planet.geometry = newGeometry;
-              }
-            }
-          }
+          planet.visible = newLodLevel <= 2 && !planetarySystem.current.isInsidePlanet;
         });
 
-        // Solar system objects - always visible with distance-based quality
-        if (asteroids) {
-          asteroids.visible = !planetarySystem.current.isInsidePlanet;
-          const asteroidDistance = camera.position.length();
-          const asteroidScale = Math.max(0.1, Math.min(2.0, 1000 / asteroidDistance));
-          asteroids.scale.setScalar(asteroidScale);
-        }
-        
-        if (comet) {
-          comet.visible = !planetarySystem.current.isInsidePlanet;
-          const cometDistance = camera.position.distanceTo(comet.position);
-          const cometScale = Math.max(0.1, Math.min(2.0, 500 / cometDistance));
-          comet.scale.setScalar(cometScale);
-        }
+        // Solar system objects (hidden when on surface)
+        if (asteroids) asteroids.visible = newLodLevel <= 2 && !planetarySystem.current.isInsidePlanet;
+        if (comet) comet.visible = newLodLevel <= 2 && !planetarySystem.current.isInsidePlanet;
 
-        // Stellar objects - adaptive scaling
+        // Stellar objects
         if (starsMaterial) {
-          const starScale = Math.max(0.1, Math.min(10.0, currentDetail / 16));
-          starsMaterial.uniforms.scale.value = starScale;
-          starsMaterial.uniforms.intensity.value = Math.max(0.3, Math.min(2.0, starScale));
+          starsMaterial.uniforms.scale.value = Math.min(5, Math.max(0.1, newLodLevel));
         }
 
-        // Galactic objects - always visible with adaptive detail
-        galaxies.forEach((galaxy, index) => {
-          galaxy.visible = !planetarySystem.current.isInsidePlanet;
-          const galaxyDistance = camera.position.distanceTo(galaxy.position);
-          const galaxyScale = Math.max(0.1, Math.min(3.0, 50000 / galaxyDistance));
-          galaxy.scale.setScalar(galaxyScale);
-          
-          // Reduce update frequency for distant galaxies (performance optimization)
-          if (index % Math.max(1, Math.floor(galaxyDistance / 10000)) === 0) {
-            galaxy.rotation.y += 0.00001 * timeSpeed;
-          }
+        // Galactic objects (milkyWay is always visible as it's the center)
+        galaxies.forEach((galaxy) => {
+          galaxy.visible = newLodLevel >= 4 && !planetarySystem.current.isInsidePlanet;
         });
 
-        // CMB - adaptive visibility and quality
+        // CMB (only visible at largest scales)
         if (lodObjects.current.cmb) {
-          const cmbDistance = camera.position.length();
-          lodObjects.current.cmb.visible = !planetarySystem.current.isInsidePlanet;
-          
-          // Scale CMB opacity based on distance
-          const cmbOpacity = Math.max(0.1, Math.min(1.0, cmbDistance / 1000000));
-          if (lodObjects.current.cmb.material && lodObjects.current.cmb.material.uniforms) {
-            lodObjects.current.cmb.material.uniforms.opacity.value = cmbOpacity;
-          }
+          lodObjects.current.cmb.visible = newLodLevel >= 5 && !planetarySystem.current.isInsidePlanet;
         }
 
-        // JWST nebulae - always visible with adaptive quality
-        jwstNebulae.forEach((nebula, index) => {
-          nebula.visible = !planetarySystem.current.isInsidePlanet;
-          
-          const nebulaDistance = camera.position.distanceTo(nebula.position);
-          const nebulaQuality = Math.max(0.2, Math.min(1.5, 5000 / nebulaDistance));
-          
-          if (nebula.userData) {
-            // Adaptive quality for each material component
-            if (nebula.userData.coreMaterial && nebula.userData.coreMaterial.uniforms) {
-              nebula.userData.coreMaterial.uniforms.quality.value = nebulaQuality;
-            }
-            if (nebula.userData.wispsMaterial && nebula.userData.wispsMaterial.uniforms) {
-              nebula.userData.wispsMaterial.uniforms.quality.value = nebulaQuality * 0.8;
-            }
-            if (nebula.userData.starsMaterial && nebula.userData.starsMaterial.uniforms) {
-              nebula.userData.starsMaterial.uniforms.quality.value = nebulaQuality * 1.2;
-            }
-          }
-          
-          // Adaptive update frequency for performance
-          if (index % Math.max(1, Math.floor(nebulaDistance / 1000)) === 0) {
-            // Update less frequently for distant nebulae
-            nebula.rotation.z += 0.0001 * timeSpeed;
-          }
+        // JWST nebulae visibility based on scale
+        jwstNebulae.forEach((nebula) => {
+          nebula.visible = newLodLevel >= 2 && newLodLevel <= 4 && !planetarySystem.current.isInsidePlanet;
         });
 
+        // Dynamic detail adjustment for performance
+        const detailLevels = [64, 32, 16, 8, 4, 2, 1];
+        const currentDetail = detailLevels[newLodLevel];
         
-        // Update all shader detail uniforms for O(1) performance
+        // Update shader detail uniforms
         if (sun && sun.material && sun.material.uniforms) {
           sun.material.uniforms.detail.value = currentDetail;
         }
-        
-        // Apply detail to all planet materials
-        planets.forEach((planet) => {
-          if (planet.material && planet.material.uniforms && planet.material.uniforms.detail) {
-            planet.material.uniforms.detail.value = currentDetail;
-          }
-        });
-        
-        // Apply detail to galaxy materials
-        galaxies.forEach((galaxy) => {
-          if (galaxy.material && galaxy.material.uniforms && galaxy.material.uniforms.detail) {
-            galaxy.material.uniforms.detail.value = currentDetail / 4; // Lower detail for distant objects
-          }
-        });
-        
-        // Apply detail to nebula materials
-        jwstNebulae.forEach((nebula) => {
-          if (nebula.userData && nebula.userData.coreMaterial && nebula.userData.coreMaterial.uniforms && nebula.userData.coreMaterial.uniforms.detail) {
-            nebula.userData.coreMaterial.uniforms.detail.value = currentDetail / 2;
-          }
-          if (nebula.userData && nebula.userData.wispsMaterial && nebula.userData.wispsMaterial.uniforms && nebula.userData.wispsMaterial.uniforms.detail) {
-            nebula.userData.wispsMaterial.uniforms.detail.value = currentDetail / 3;
-          }
-          if (nebula.userData && nebula.userData.starsMaterial && nebula.userData.starsMaterial.uniforms && nebula.userData.starsMaterial.uniforms.detail) {
-            nebula.userData.starsMaterial.uniforms.detail.value = currentDetail / 2;
-          }
-        });
-        
-        // Apply detail to atmospheric materials
-        if (lodObjects.current.atmosphere && lodObjects.current.atmosphere.userData.materials) {
-          lodObjects.current.atmosphere.userData.materials.forEach(material => {
-            if (material.uniforms && material.uniforms.detail) {
-              material.uniforms.detail.value = currentDetail * 2; // Higher detail for close objects
-            }
-          });
-        }
 
+        const status = planetarySystem.current.isInsidePlanet ? 
+          `Inside ${planetarySystem.current.currentPlanet?.userData.name}` :
+          `LOD Level: ${newLodLevel}, Scale: ${newScale}, Distance: ${distance.toExponential(2)}km`;
+        console.log(status);
       }
 
       // Surface camera locking when inside planet
@@ -4114,7 +4003,7 @@ const UniverseSimulation = () => {
         const planet = planetarySystem.current.currentPlanet;
         const planetCenter = planet.position;
         const currentPos = camera.position.clone().sub(planetCenter);
-        const planetRadius = planet.userData.visualRadius;
+        const planetRadius = planet.userData.radius;
         
         // Keep camera at surface level
         const surfacePos = currentPos.normalize().multiplyScalar(planetRadius + 0.002);
@@ -4433,31 +4322,19 @@ const UniverseSimulation = () => {
       velocityInterval = setInterval(updateVelocity, 16);
     }
 
-    // Animation with proper delta time
+    // Animation
     let time = 0;
-    let lastFrameTime = performance.now();
-    const animate = (currentTime) => {
+    const animate = () => {
       frameRef.current = requestAnimationFrame(animate);
-      const deltaTime = (currentTime - lastFrameTime) / 1000; // Convert to seconds
-      lastFrameTime = currentTime;
-      
-      // Scale time: 1 day (86400 seconds) = 1 minute (60 seconds)
-      const timeScale = 86400 / 60; // 1440x speed
-      time += deltaTime * timeSpeed * timeScale;
+      time += 0.016 * timeSpeed;
 
-      // Update sun with adaptive detail
+      // Update sun
       sun.material.uniforms.time.value = time;
       const distance = camera.position.length();
-      const sunDetail = Math.max(
+      sun.material.uniforms.detail.value = Math.max(
         0.1,
-        Math.min(512, 50000 / distance) // Increased max detail for close-up viewing
+        Math.min(10, 1000 / distance)
       );
-      sun.material.uniforms.detail.value = sunDetail;
-      
-      // Adaptive sun corona based on distance
-      if (sun.material.uniforms.corona) {
-        sun.material.uniforms.corona.value = Math.max(0.5, Math.min(3.0, sunDetail / 100));
-      }
 
       // Update planets
       planets.forEach((planet) => {
@@ -4466,7 +4343,7 @@ const UniverseSimulation = () => {
           Math.cos(planet.userData.angle) * planet.userData.distance;
         planet.position.z =
           Math.sin(planet.userData.angle) * planet.userData.distance;
-        planet.rotation.y += 0.01 * deltaTime * 60 * timeSpeed; // Scale rotation with time
+        planet.rotation.y += 0.01;
       });
 
       // Update comet
@@ -4504,7 +4381,7 @@ const UniverseSimulation = () => {
 
       for (let i = lightningBolts.length - 1; i >= 0; i--) {
         const bolt = lightningBolts[i];
-        bolt.userData.lifetime += deltaTime * 3; // Frame-rate independent lightning
+        bolt.userData.lifetime += 0.05;
         bolt.material.opacity = Math.max(0, 0.8 - bolt.userData.lifetime);
 
         if (bolt.userData.lifetime > 1) {
@@ -4630,7 +4507,7 @@ const UniverseSimulation = () => {
       renderer.render(scene, camera);
     };
 
-    animate(performance.now());
+    animate();
 
     // Handle resize
     const handleResize = () => {
@@ -4667,24 +4544,12 @@ const UniverseSimulation = () => {
 
   // Get scale label with scientific accuracy
   const getScaleLabel = () => {
-    try {
-      if (!cameraState.current || !cameraState.current.position) {
-        console.warn("getScaleLabel - cameraState not properly initialized");
-        return "🚀 Initializing...";
-      }
-      
-      const distance = cameraState.current.position.length();
-      console.log("getScaleLabel - distance:", distance, typeof distance, "cameraState:", cameraState.current);
-      
-      if (isNaN(distance) || !isFinite(distance)) {
-        console.warn("getScaleLabel - distance is NaN or infinite:", distance);
-        return "🚀 Calculating...";
-      }
+    const distance = cameraState.current.position.length();
     
     // Special case for planetary surface mode
     if (planetarySystem.current.isInsidePlanet && planetarySystem.current.currentPlanet) {
       const planetName = planetarySystem.current.currentPlanet.userData.name;
-      const altitude = (distance - planetarySystem.current.currentPlanet.userData.visualRadius) * 1000;
+      const altitude = (distance - planetarySystem.current.currentPlanet.userData.radius) * 1000;
       return `🪐 On ${planetName} Surface (${altitude.toFixed(0)}m altitude)`;
     }
     
@@ -4708,20 +4573,11 @@ const UniverseSimulation = () => {
       default:
         return "🚀 Space";
     }
-    } catch (error) {
-      console.error("Error in getScaleLabel:", error);
-      return "🚀 Error";
-    }
   };
 
-  // Debug render state before return
-  console.log("About to render - planetarySystem:", planetarySystem.current);
-  console.log("About to render - isMobile:", isMobile, typeof isMobile);
-  
-  try {
-    return (
-      <div className="w-full h-screen relative bg-black overflow-hidden">
-        <div ref={mountRef} className="w-full h-full" />
+  return (
+    <div className="w-full h-screen relative bg-black overflow-hidden">
+      <div ref={mountRef} className="w-full h-full" />
 
       {/* Minimal UI */}
       {isMobile ? (
@@ -4730,12 +4586,10 @@ const UniverseSimulation = () => {
           <div className="absolute top-2 left-2 bg-black/50 backdrop-blur px-2 py-1 rounded text-white text-xs">
             <div>{getScaleLabel()}</div>
             <div className="text-gray-400">
-              {(() => {
-                console.log("Mobile UI rendering - isInsidePlanet:", planetarySystem.current?.isInsidePlanet);
-                return planetarySystem.current?.isInsidePlanet ? 
-                  "Surface Mode: Drag: Look • Pinch: Move on surface" :
-                  "Tap: Forward • Drag: Look • Pinch: Move";
-              })()}
+              {planetarySystem.current.isInsidePlanet ? 
+                "Surface Mode: Drag: Look • Pinch: Move on surface" :
+                "Tap: Forward • Drag: Look • Pinch: Move"
+              }
             </div>
             {planetarySystem.current.isInsidePlanet && (
               <div className="text-yellow-400 mt-1">
@@ -4771,19 +4625,10 @@ const UniverseSimulation = () => {
                 max="10"
                 step="0.5"
                 value={timeSpeed}
-                onChange={(e) => {
-                  console.log("Mobile timeSpeed onChange - raw value:", e.target.value, typeof e.target.value);
-                  const newValue = parseFloat(e.target.value);
-                  console.log("Mobile timeSpeed onChange - parsed value:", newValue, typeof newValue);
-                  if (!isNaN(newValue) && isFinite(newValue)) {
-                    setTimeSpeed(newValue);
-                  } else {
-                    console.error("Invalid timeSpeed value:", newValue);
-                  }
-                }}
+                onChange={(e) => setTimeSpeed(parseFloat(e.target.value))}
                 className="flex-1 h-1"
               />
-              <span className="text-white text-xs font-mono">{isNaN(timeSpeed) ? "0" : timeSpeed}x</span>
+              <span className="text-white text-xs font-mono">{timeSpeed}x</span>
             </div>
           </div>
         </>
@@ -4837,32 +4682,16 @@ const UniverseSimulation = () => {
                 max="10"
                 step="0.5"
                 value={timeSpeed}
-                onChange={(e) => {
-                  console.log("Desktop timeSpeed onChange - raw value:", e.target.value, typeof e.target.value);
-                  const newValue = parseFloat(e.target.value);
-                  console.log("Desktop timeSpeed onChange - parsed value:", newValue, typeof newValue);
-                  if (!isNaN(newValue) && isFinite(newValue)) {
-                    setTimeSpeed(newValue);
-                  } else {
-                    console.error("Invalid timeSpeed value:", newValue);
-                  }
-                }}
+                onChange={(e) => setTimeSpeed(parseFloat(e.target.value))}
                 className="w-32 h-1"
               />
-              <span className="text-white text-xs font-mono">{isNaN(timeSpeed) ? "0" : timeSpeed}x</span>
+              <span className="text-white text-xs font-mono">{timeSpeed}x</span>
             </div>
           </div>
         </>
       )}
     </div>
-    );
-  } catch (error) {
-    console.error("Render error in UniverseSimulation:", error);
-    console.error("Error stack:", error.stack);
-    console.error("Current state - timeSpeed:", timeSpeed, "isMobile:", isMobile);
-    console.error("Current refs - planetarySystem:", planetarySystem.current);
-    throw error; // Re-throw to show the actual error
-  }
+  );
 };
 
 export default UniverseSimulation;
