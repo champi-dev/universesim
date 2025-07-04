@@ -370,13 +370,13 @@ export class ParallelNaniteSystem {
     const screenWidth = this.renderer.domElement.width;
     const screenHeight = this.renderer.domElement.height;
     
-    // Prepare cluster data for workers
+    // Prepare cluster data for workers (exclude non-serializable data)
     const clusterData = [];
     this.clusters.forEach((data, meshId) => {
       clusterData.push({
         meshId: meshId,
-        cluster: data.root.serialize(),
-        material: data.material
+        cluster: data.root.serialize()
+        // Don't include material - it has functions that can't be cloned
       });
     });
     
@@ -448,7 +448,7 @@ export class ParallelNaniteSystem {
    * Process clusters locally when workers are not available
    */
   processClustersLocally(clusterData, cameraData, screenWidth, screenHeight) {
-    clusterData.forEach(({ meshId, cluster, material }) => {
+    clusterData.forEach(({ meshId, cluster }) => {
       // Simple distance-based LOD selection
       const center = {
         x: (cluster.bounds.min.x + cluster.bounds.max.x) / 2,
@@ -472,12 +472,15 @@ export class ParallelNaniteSystem {
       const error = screenSize / Math.max(1, Math.sqrt(cluster.triangleCount || 1000));
       
       if (error >= this.errorThreshold) {
-        this.visibleClusters.add({
-          cluster: this.clusters.get(meshId).root,
-          material: material,
-          meshId: meshId
-        });
-        this.stats.trianglesRendered += cluster.triangleCount || 1000;
+        const clusterData = this.clusters.get(meshId);
+        if (clusterData) {
+          this.visibleClusters.add({
+            cluster: clusterData.root,
+            material: clusterData.material,
+            meshId: meshId
+          });
+          this.stats.trianglesRendered += cluster.triangleCount || 1000;
+        }
       }
     });
   }

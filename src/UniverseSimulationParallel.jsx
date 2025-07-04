@@ -46,14 +46,10 @@ const UniverseSimulationParallel = () => {
           100000000
         );
         
-        // Mobile starts at solar system level
-        if (mobile) {
-          camera.position.set(AU_SCALE * 10, AU_SCALE * 5, AU_SCALE * 10);
-          camera.lookAt(0, 0, 0);
-        } else {
-          camera.position.set(AU_SCALE * 1.5, AU_SCALE * 0.5, AU_SCALE * 1.5);
-          camera.lookAt(0, 0, 0);
-        }
+        // Start camera position with sun occupying ~30% of screen
+        const startPos = new THREE.Vector3(AU_SCALE * 0.8, AU_SCALE * 0.5, AU_SCALE * 0.8);
+        camera.position.copy(startPos);
+        camera.lookAt(0, 0, 0); // Look at sun
         
         // Renderer with HDR and optimizations
         renderer = new THREE.WebGLRenderer({ 
@@ -208,13 +204,6 @@ const UniverseSimulationParallel = () => {
           const group = new THREE.Group();
           group.name = data.name;
           
-          // Base detail level based on distance
-          const getDetailLevel = (distance) => {
-            if (distance < data.size * 10) return 'ultra'; // Very close
-            if (distance < data.size * 50) return 'high';  // Close
-            if (distance < data.size * 200) return 'medium'; // Mid range
-            return 'low'; // Far
-          };
           
           // Create planet with dynamic LOD
           const createPlanetMesh = (detailLevel) => {
@@ -945,7 +934,7 @@ const UniverseSimulationParallel = () => {
           
           for (let layer = 0; layer < layerCount; layer++) {
             const layerSize = baseSize * (1 + layer * 0.3);
-            const layerOpacity = 0.3 - layer * 0.05;
+            const layerOpacity = 0.15 - layer * 0.02; // Much less opacity
             
             // Create volumetric cloud particles for each layer
             const particleCount = mobile ? 1000 : 3000;
@@ -1039,7 +1028,7 @@ const UniverseSimulationParallel = () => {
                   // Bright core, darker edges (like JWST images)
                   vec3 finalColor = vColor * (1.0 + strength * 2.0);
                   
-                  gl_FragColor = vec4(finalColor, vAlpha * strength);
+                  gl_FragColor = vec4(finalColor, vAlpha * strength * 0.3); // Reduced opacity
                 }
               `,
               transparent: true,
@@ -1062,9 +1051,7 @@ const UniverseSimulationParallel = () => {
           for (let i = 0; i < starCount; i++) {
             const starGeometry = new THREE.SphereGeometry(5, 8, 8);
             const starMaterial = new THREE.MeshBasicMaterial({
-              color: new THREE.Color(1.2, 1.2, 1.4),
-              emissive: new THREE.Color(1, 1, 1),
-              emissiveIntensity: 2
+              color: new THREE.Color(1.2, 1.2, 1.4)
             });
             
             const star = new THREE.Mesh(starGeometry, starMaterial);
@@ -1093,7 +1080,7 @@ const UniverseSimulationParallel = () => {
                 void main() {
                   float intensity = pow(0.8 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 3.0);
                   vec3 color = vec3(1.0, 0.95, 0.8) * intensity * 2.0;
-                  gl_FragColor = vec4(color, intensity * 0.6);
+                  gl_FragColor = vec4(color, intensity * 0.3); // Reduced glow
                 }
               `,
               transparent: true,
@@ -1110,7 +1097,7 @@ const UniverseSimulationParallel = () => {
             const spikeMaterial = new THREE.MeshBasicMaterial({
               color: 0xffffff,
               transparent: true,
-              opacity: 0.5,
+              opacity: 0.2, // Reduced spike opacity
               blending: THREE.AdditiveBlending,
               side: THREE.DoubleSide,
               depthWrite: false
@@ -1126,10 +1113,11 @@ const UniverseSimulationParallel = () => {
             nebulaGroup.add(star);
           }
           
+          // Position nebulae far away and mostly above the solar system plane
           nebulaGroup.position.set(
-            nebula.ra ? (nebula.ra - 180) * 100 : (Math.random() - 0.5) * 20000,
-            (Math.random() - 0.5) * 10000,
-            nebula.dec ? nebula.dec * 100 : (Math.random() - 0.5) * 20000
+            nebula.ra ? (nebula.ra - 180) * 100 : (Math.random() - 0.5) * 30000,
+            nebula.dec ? nebula.dec * 100 : 5000 + Math.random() * 20000, // Mostly above
+            (Math.random() - 0.5) * 30000
           );
           
           nebulaGroup.userData = { layers: layerCount };
@@ -1440,6 +1428,20 @@ const UniverseSimulationParallel = () => {
         let lastTouchDistance = 0;
         let rotationVelocity = { x: 0, y: 0 }; // For smooth mouse look
         
+        // Camera rotation state for proper FPS controls
+        let pitch = 0; // X rotation
+        let yaw = 0;   // Y rotation
+        
+        // Initialize camera pitch/yaw based on lookAt direction
+        const initialDir = new THREE.Vector3(0, 0, 0).sub(camera.position).normalize();
+        pitch = Math.asin(-initialDir.y);
+        yaw = Math.atan2(-initialDir.x, -initialDir.z);
+        
+        // Mobile movement state
+        let mobileMovement = { forward: 0, strafe: 0, up: 0 };
+        let lastTapTime = 0;
+        let doubleTapTimer = null;
+        
         // Mobile touch controls
         if (mobile) {
           renderer.domElement.addEventListener('touchstart', (e) => {
@@ -1447,12 +1449,39 @@ const UniverseSimulationParallel = () => {
               touchStartX = e.touches[0].clientX;
               touchStartY = e.touches[0].clientY;
               isMouseDown = true;
+              
+              // Double tap to move forward, triple tap to log position
+              const currentTime = Date.now();
+              if (currentTime - lastTapTime < 300) {
+                if (doubleTapTimer && currentTime - lastTapTime < 300) {
+                  // Triple tap - log position
+                  console.log('Camera Position:', camera.position);
+                  console.log('Camera Rotation (pitch, yaw):', pitch, yaw);
+                  console.log('Copy this for default position:');
+                  console.log(`camera.position.set(${camera.position.x}, ${camera.position.y}, ${camera.position.z});`);
+                  console.log(`pitch = ${pitch};`);
+                  console.log(`yaw = ${yaw};`);
+                  clearTimeout(doubleTapTimer);
+                  doubleTapTimer = null;
+                } else {
+                  // Double tap - move forward
+                  mobileMovement.forward = 1;
+                  if (doubleTapTimer) clearTimeout(doubleTapTimer);
+                  doubleTapTimer = setTimeout(() => {
+                    mobileMovement.forward = 0;
+                  }, 2000); // Move forward for 2 seconds
+                }
+              }
+              lastTapTime = currentTime;
             } else if (e.touches.length === 2) {
-              // Pinch zoom
+              // Pinch zoom moves camera forward/backward
               const dx = e.touches[0].clientX - e.touches[1].clientX;
               const dy = e.touches[0].clientY - e.touches[1].clientY;
               pinchStartDistance = Math.sqrt(dx * dx + dy * dy);
               lastTouchDistance = pinchStartDistance;
+            } else if (e.touches.length === 3) {
+              // Three finger touch for up/down movement
+              mobileMovement.up = 1;
             }
           });
           
@@ -1463,30 +1492,42 @@ const UniverseSimulationParallel = () => {
               const deltaX = e.touches[0].clientX - touchStartX;
               const deltaY = e.touches[0].clientY - touchStartY;
               
-              // Direct camera rotation for immediate response
-              camera.rotation.y -= deltaX * 0.01;
-              camera.rotation.x -= deltaY * 0.01;
-              camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+              // Update pitch and yaw for full 360-degree rotation
+              yaw += deltaX * 0.01;  // Fixed: was inverted
+              pitch -= deltaY * 0.01;
+              
+              // No limits - allow full 360-degree rotation
+              // Apply rotation using quaternion to avoid gimbal lock
+              const quaternion = new THREE.Quaternion();
+              const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
+              quaternion.setFromEuler(euler);
+              camera.quaternion.copy(quaternion);
               
               touchStartX = e.touches[0].clientX;
               touchStartY = e.touches[0].clientY;
             } else if (e.touches.length === 2) {
-              // Pinch zoom - exponential scaling for fast traversal
+              // Pinch to move forward/backward in view direction
               const dx = e.touches[0].clientX - e.touches[1].clientX;
               const dy = e.touches[0].clientY - e.touches[1].clientY;
               const distance = Math.sqrt(dx * dx + dy * dy);
               
               const scale = distance / lastTouchDistance;
-              // Exponential zoom - 5% change becomes much larger at distance
-              const zoomFactor = scale > 1 ? 1.05 : 0.95;
-              camera.position.multiplyScalar(Math.pow(zoomFactor, Math.abs(scale - 1) * 10));
+              const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+              
+              // Move along view direction based on pinch
+              const moveSpeed = (scale > 1 ? 100 : -100) * Math.abs(scale - 1);
+              camera.position.addScaledVector(forward, moveSpeed);
               
               lastTouchDistance = distance;
             }
           });
           
-          renderer.domElement.addEventListener('touchend', () => {
+          renderer.domElement.addEventListener('touchend', (e) => {
             isMouseDown = false;
+            // Stop up/down movement when lifting 3 fingers
+            if (e.touches.length < 3) {
+              mobileMovement.up = 0;
+            }
           });
         } else {
           // Desktop controls - initialize keys object
@@ -1532,6 +1573,14 @@ const UniverseSimulationParallel = () => {
               keysRef.current['control'] = true;
             } else if (e.key === 'Escape' && isPointerLocked) {
               document.exitPointerLock();
+            } else if (e.key === 'p' || e.key === 'P') {
+              // Press P to log current camera position and rotation
+              console.log('Camera Position:', camera.position);
+              console.log('Camera Rotation (pitch, yaw):', pitch, yaw);
+              console.log('Copy this for default position:');
+              console.log(`camera.position.set(${camera.position.x}, ${camera.position.y}, ${camera.position.z});`);
+              console.log(`pitch = ${pitch};`);
+              console.log(`yaw = ${yaw};`);
             }
           });
           
@@ -1558,18 +1607,108 @@ const UniverseSimulationParallel = () => {
         // ========== ANIMATION LOOP ==========
         let time = 0;
         const clock = new THREE.Clock();
+        let lastFrameTime = performance.now();
+        let frameSkipCounter = 0;
+        
+        // Fade animation helper with error checking
+        const fadeObject = (object, targetOpacity, deltaTime, fadeSpeed = 2) => {
+          // Check if object exists and is valid
+          if (!object || typeof object !== 'object') return;
+          
+          // Initialize userData if needed
+          if (!object.userData) object.userData = {};
+          
+          // Initialize fade opacity
+          if (!object.userData.fadeOpacity) {
+            if (object.material) {
+              if (Array.isArray(object.material)) {
+                object.userData.fadeOpacity = object.material[0]?.opacity || 1;
+              } else {
+                object.userData.fadeOpacity = object.material.opacity || 1;
+              }
+            } else {
+              object.userData.fadeOpacity = 1;
+            }
+          }
+          
+          // Update fade opacity
+          object.userData.fadeOpacity += (targetOpacity - object.userData.fadeOpacity) * deltaTime * fadeSpeed;
+          
+          // Apply to material if it exists
+          if (object.material) {
+            if (Array.isArray(object.material)) {
+              object.material.forEach(mat => {
+                if (mat) {
+                  mat.transparent = true;
+                  mat.opacity = object.userData.fadeOpacity;
+                }
+              });
+            } else {
+              object.material.transparent = true;
+              object.material.opacity = object.userData.fadeOpacity;
+            }
+          }
+          
+          // Hide completely when faded out
+          object.visible = object.userData.fadeOpacity > 0.01;
+        };
+        
+        // Fade group helper
+        const fadeGroup = (group, targetVisible, deltaTime, fadeSpeed = 2) => {
+          if (!group.userData.groupOpacity) {
+            group.userData.groupOpacity = targetVisible ? 1 : 0;
+          }
+          
+          const targetOpacity = targetVisible ? 1 : 0;
+          group.userData.groupOpacity += (targetOpacity - group.userData.groupOpacity) * deltaTime * fadeSpeed;
+          
+          group.traverse((child) => {
+            if (child.material && child !== group) {
+              if (Array.isArray(child.material)) {
+                child.material.forEach(mat => {
+                  mat.transparent = true;
+                  mat.opacity = child.userData.originalOpacity ? 
+                    child.userData.originalOpacity * group.userData.groupOpacity : 
+                    group.userData.groupOpacity;
+                });
+              } else {
+                if (!child.userData.originalOpacity && child.material.opacity !== undefined) {
+                  child.userData.originalOpacity = child.material.opacity;
+                }
+                child.material.transparent = true;
+                child.material.opacity = child.userData.originalOpacity ? 
+                  child.userData.originalOpacity * group.userData.groupOpacity : 
+                  group.userData.groupOpacity;
+              }
+            }
+          });
+          
+          group.visible = group.userData.groupOpacity > 0.01;
+        };
         
         const animate = () => {
           animationId = requestAnimationFrame(animate);
           const deltaTime = clock.getDelta();
           time += deltaTime;
           
+          // Frame limiting when performance is poor
+          const now = performance.now();
+          const frameTime = now - lastFrameTime;
+          lastFrameTime = now;
+          
+          // Skip frames if running too slow (< 20 FPS)
+          if (frameTime > 50 && frameSkipCounter < 2) {
+            frameSkipCounter++;
+            return;
+          }
+          frameSkipCounter = 0;
+          
           // Update Nanite system (parallel processing) - don't await in animation loop
           if (naniteSystemRef.current) {
             naniteSystemRef.current.update().catch(err => console.error('Nanite update error:', err));
           }
           
-          // Update sun
+          // Update sun with distance-based corona fading
           sunGroup.rotation.y += deltaTime * 0.1;
           if (sunMaterial.uniforms) {
             sunMaterial.uniforms.time.value = time;
@@ -1579,99 +1718,207 @@ const UniverseSimulationParallel = () => {
             ).normalize();
           }
           
-          // Update planets
+          // Fade sun corona based on distance
+          const sunDistance = camera.position.distanceTo(sunGroup.position);
+          const corona = sunGroup.children.find(child => child.name === 'corona' || child.material?.blending === THREE.AdditiveBlending);
+          if (corona) {
+            const coronaShouldBeVisible = sunDistance < 5000;
+            fadeObject(corona, coronaShouldBeVisible ? 0.5 : 0, deltaTime, 2);
+          }
+          
+          // Update planets with distance-based optimizations
           planets.forEach((planet, index) => {
-            planet.angle += deltaTime * planet.speed * 0.0001;
-            planet.group.position.x = Math.cos(planet.angle) * planet.distance;
-            planet.group.position.z = Math.sin(planet.angle) * planet.distance;
-            planet.mesh.rotation.y += deltaTime * 0.5;
+            // Calculate distance from camera to planet
+            const planetDistance = camera.position.distanceTo(planet.group.position);
             
-            // Update moons
-            planet.moons.forEach((moon) => {
-              if (moon.userData.distance) {
-                moon.userData.angle = (moon.userData.angle || 0) + deltaTime * moon.userData.speed * 0.01;
-                moon.position.x = Math.cos(moon.userData.angle) * moon.userData.distance;
-                moon.position.z = Math.sin(moon.userData.angle) * moon.userData.distance;
-                moon.rotation.y += deltaTime * 0.3;
+            // Only update orbital position for visible planets
+            if (planetDistance < 100000) {
+              planet.angle += deltaTime * planet.speed * 0.0001;
+              planet.group.position.x = Math.cos(planet.angle) * planet.distance;
+              planet.group.position.z = Math.sin(planet.angle) * planet.distance;
+              
+              // Skip rotation and moon updates when far
+              if (planetDistance < 50000) {
+                planet.mesh.rotation.y += deltaTime * 0.5;
+                
+                // Update moons only when close
+                if (planetDistance < 10000) {
+                  planet.moons.forEach((moon) => {
+                    if (moon.userData.distance) {
+                      moon.userData.angle = (moon.userData.angle || 0) + deltaTime * moon.userData.speed * 0.01;
+                      moon.position.x = Math.cos(moon.userData.angle) * moon.userData.distance;
+                      moon.position.z = Math.sin(moon.userData.angle) * moon.userData.distance;
+                      moon.rotation.y += deltaTime * 0.3;
+                    }
+                  });
+                }
+                
+                // Update shader uniforms only when close
+                if (planetDistance < 20000 && planet.mesh.material && planet.mesh.material.uniforms) {
+                  if (planet.mesh.material.uniforms.sunPosition) {
+                    planet.mesh.material.uniforms.sunPosition.value.copy(sunGroup.position);
+                  }
+                  if (planet.mesh.material.uniforms.time) {
+                    planet.mesh.material.uniforms.time.value = time;
+                  }
+                }
               }
-            });
-            
-            // Update shader uniforms for hyperrealistic planets
-            if (planet.mesh.material && planet.mesh.material.uniforms) {
-              if (planet.mesh.material.uniforms.sunPosition) {
-                planet.mesh.material.uniforms.sunPosition.value.copy(sunGroup.position);
-              }
-              if (planet.mesh.material.uniforms.time) {
-                planet.mesh.material.uniforms.time.value = time;
-              }
+              
+              // Fade moons based on distance
+              planet.moons.forEach(moon => {
+                const moonShouldBeVisible = planetDistance < 10000;
+                fadeObject(moon, moonShouldBeVisible ? 1 : 0, deltaTime, 2);
+              });
+              
+              fadeGroup(planet.group, true, deltaTime, 1.5);
+            } else {
+              // Fade out distant planets entirely
+              fadeGroup(planet.group, false, deltaTime, 1.5);
             }
             
-            // Update planet trails
+            // Update planet trails with fading
             if (planetTrails && planetTrails.children[index]) {
               const trail = planetTrails.children[index];
-              const positions = trail.geometry.attributes.position.array;
-              const trailCount = positions.length / 3;
               
-              // Shift positions back
-              for (let i = trailCount - 1; i > 0; i--) {
-                positions[i * 3] = positions[(i - 1) * 3];
-                positions[i * 3 + 1] = positions[(i - 1) * 3 + 1];
-                positions[i * 3 + 2] = positions[(i - 1) * 3 + 2];
+              // Fade trail based on planet distance
+              const trailShouldBeVisible = planetDistance < 50000;
+              fadeObject(trail, trailShouldBeVisible ? 0.3 : 0, deltaTime, 2);
+              
+              if (trail.visible) {
+                const positions = trail.geometry.attributes.position.array;
+                const trailCount = positions.length / 3;
+                
+                // Shift positions back
+                for (let i = trailCount - 1; i > 0; i--) {
+                  positions[i * 3] = positions[(i - 1) * 3];
+                  positions[i * 3 + 1] = positions[(i - 1) * 3 + 1];
+                  positions[i * 3 + 2] = positions[(i - 1) * 3 + 2];
+                }
+                
+                // Add new position at front
+                positions[0] = planet.group.position.x;
+                positions[1] = planet.group.position.y;
+                positions[2] = planet.group.position.z;
+                
+                trail.geometry.attributes.position.needsUpdate = true;
               }
-              
-              // Add new position at front
-              positions[0] = planet.group.position.x;
-              positions[1] = planet.group.position.y;
-              positions[2] = planet.group.position.z;
-              
-              trail.geometry.attributes.position.needsUpdate = true;
             }
           });
           
-          // Update shader uniforms and particle effects
-          scene.traverse((object) => {
-            if (object.material && object.material.uniforms) {
-              if (object.material.uniforms.time) {
-                object.material.uniforms.time.value = time;
+          // Update shader uniforms and particle effects (skip when zoomed out)
+          if (!camera.userData.skipShaderUpdates) {
+            scene.traverse((object) => {
+              if (object.material && object.material.uniforms) {
+                if (object.material.uniforms.time) {
+                  object.material.uniforms.time.value = time;
+                }
+                // Update dust camera position
+                if (object.name === 'cosmicDust' && object.material.uniforms.cameraPos) {
+                  object.material.uniforms.cameraPos.value.copy(camera.position);
+                }
               }
-              // Update dust camera position
-              if (object.name === 'cosmicDust' && object.material.uniforms.cameraPos) {
-                object.material.uniforms.cameraPos.value.copy(camera.position);
+              
+              // Animate nebula layers only when visible
+              if (object.parent && object.parent.userData && object.parent.userData.layers && 
+                  object.parent.visible) {
+                object.rotation.y += deltaTime * 0.02;
+                object.rotation.x += deltaTime * 0.01;
               }
-            }
-            
-            // Animate nebula layers
-            if (object.parent && object.parent.userData && object.parent.userData.layers) {
-              object.rotation.y += deltaTime * 0.02;
-              object.rotation.x += deltaTime * 0.01;
-            }
-          });
+            });
+          }
           
-          // LOD for particle effects based on camera speed
+          // LOD for particle effects based on camera speed and distance
           const cameraSpeed = new THREE.Vector3(
             camera.position.x - (camera.userData.lastPosition?.x || camera.position.x),
             camera.position.y - (camera.userData.lastPosition?.y || camera.position.y),
             camera.position.z - (camera.userData.lastPosition?.z || camera.position.z)
           ).length();
           
-          // Hide particles when moving very fast
-          if (cosmicDust) {
-            cosmicDust.visible = cameraSpeed < 1000;
-          }
-          if (gasClouds) {
-            gasClouds.visible = cameraSpeed < 5000;
+          const cameraDistance = camera.position.length();
+          
+          // Aggressive culling when zoomed out with fade animations
+          if (cameraDistance > 10000) {
+            // Fade out particle effects when very far
+            if (cosmicDust) fadeObject(cosmicDust, 0, deltaTime, 3);
+            if (gasClouds) fadeObject(gasClouds, 0, deltaTime, 3);
+            
+            // Fade nebulae when extremely far
+            if (nebulaGroup) {
+              const shouldBeVisible = cameraDistance < 50000;
+              fadeGroup(nebulaGroup, shouldBeVisible, deltaTime, 1);
+            }
+            
+            // Fade detail for various objects based on distance
+            scene.traverse((object) => {
+              if (object.type === 'InstancedMesh' && object.geometry) {
+                const shouldBeVisible = cameraDistance < 30000;
+                fadeObject(object, shouldBeVisible ? 1 : 0, deltaTime, 2);
+              }
+              // Reduce star field particle size when far
+              if (object.type === 'Points' && object.material && object.material.size) {
+                if (cameraDistance > 20000) {
+                  object.material.size = 1; // Minimal size when far
+                } else {
+                  object.material.size = 2; // Normal size
+                }
+              }
+            });
+            
+            // Skip shader updates when far
+            camera.userData.skipShaderUpdates = true;
+          } else {
+            // Normal visibility based on speed with fading
+            if (cosmicDust) {
+              const shouldBeVisible = cameraSpeed < 1000 && cameraDistance < 5000;
+              fadeObject(cosmicDust, shouldBeVisible ? 1 : 0, deltaTime, 3);
+            }
+            if (gasClouds) {
+              const shouldBeVisible = cameraSpeed < 5000 && cameraDistance < 8000;
+              fadeObject(gasClouds, shouldBeVisible ? 1 : 0, deltaTime, 3);
+            }
+            if (nebulaGroup) {
+              fadeGroup(nebulaGroup, true, deltaTime, 1);
+            }
+            camera.userData.skipShaderUpdates = false;
           }
           
           // Store last position
           camera.userData.lastPosition = camera.position.clone();
           
-          // Camera movement - only for desktop when pointer is locked
-          if (!mobile) {
-            // Apply smooth rotation with damping
+          // Camera movement
+          if (mobile) {
+            // Mobile movement based on touch gestures
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+            const up = new THREE.Vector3(0, 1, 0);
+            
+            // Calculate speed based on distance from origin
+            const cameraDistance = camera.position.length();
+            let baseSpeed = Math.max(10, Math.pow(cameraDistance, 1.1) * 0.001);
+            const moveDistance = baseSpeed * deltaTime * 60;
+            
+            // Apply movement
+            if (mobileMovement.forward !== 0) {
+              camera.position.addScaledVector(forward, moveDistance * mobileMovement.forward);
+            }
+            if (mobileMovement.strafe !== 0) {
+              camera.position.addScaledVector(right, moveDistance * mobileMovement.strafe);
+            }
+            if (mobileMovement.up !== 0) {
+              camera.position.addScaledVector(up, moveDistance * mobileMovement.up);
+            }
+          } else {
+            // Apply smooth rotation with damping using pitch/yaw
             if (rotationVelocity) {
-              camera.rotation.y -= rotationVelocity.x;
-              camera.rotation.x -= rotationVelocity.y;
-              camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+              yaw += rotationVelocity.x;  // Fixed: was inverted
+              pitch -= rotationVelocity.y;
+              
+              // No limits - allow full 360-degree rotation
+              // Apply rotation using quaternion to avoid gimbal lock
+              const quaternion = new THREE.Quaternion();
+              const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
+              quaternion.setFromEuler(euler);
+              camera.quaternion.copy(quaternion);
               
               // Damping for smooth stop
               rotationVelocity.x *= 0.85;
@@ -1699,11 +1946,34 @@ const UniverseSimulationParallel = () => {
             if (keysRef.current['d']) camera.position.addScaledVector(right, moveDistance);
             if (keysRef.current[' ']) camera.position.addScaledVector(up, moveDistance);
             if (keysRef.current['control']) camera.position.addScaledVector(up, -moveDistance);
+            
+            // Debug: Log camera position when P is pressed
+            if (keysRef.current['p']) {
+              console.log('Current camera position:', {
+                x: camera.position.x,
+                y: camera.position.y,
+                z: camera.position.z
+              });
+              console.log('To use this as default, update line 50-52 with:');
+              console.log(`const startPos = new THREE.Vector3(${camera.position.x}, ${camera.position.y}, ${camera.position.z});`);
+              keysRef.current['p'] = false; // Prevent spam
+            }
           }
           
           
+          // Adjust camera far plane based on zoom level
+          const oldFar = camera.far;
+          if (cameraDistance > 50000) {
+            camera.far = cameraDistance * 2; // Reduce far plane when zoomed out
+          } else {
+            camera.far = 100000000; // Normal far plane
+          }
+          if (oldFar !== camera.far) {
+            camera.updateProjectionMatrix();
+          }
+          
           // Render with Nanite if available
-          if (naniteSystemRef.current) {
+          if (naniteSystemRef.current && cameraDistance < 50000) {
             naniteSystemRef.current.render(scene);
           }
           
