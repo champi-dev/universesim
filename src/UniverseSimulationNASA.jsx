@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import { loadAstronomicalData } from "./data/nasaDataFetcher";
 import { preloadedExoplanets, preloadedAsteroids, preloadedNebulae } from "./data/preloadedData";
@@ -74,6 +74,8 @@ const AU_SCALE = 100;
 
 const UniverseSimulationNASA = () => {
   const mountRef = useRef(null);
+  const minimapRef = useRef(null);
+  const [cameraPos, setCameraPos] = useState({ x: 0, y: 0, z: 0 });
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -110,6 +112,27 @@ const UniverseSimulationNASA = () => {
 
     // Initialize spatial grid
     const spatialGrid = new SpatialHashGrid(1000);
+
+    // ========== MINIMAP SETUP ==========
+    const minimapCanvas = document.createElement('canvas');
+    minimapCanvas.width = 250;
+    minimapCanvas.height = 250;
+    minimapCanvas.style.position = 'fixed';
+    minimapCanvas.style.bottom = '20px';
+    minimapCanvas.style.right = '20px';
+    minimapCanvas.style.border = '2px solid rgba(255, 255, 255, 0.5)';
+    minimapCanvas.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
+    minimapCanvas.style.borderRadius = '10px';
+    minimapCanvas.style.pointerEvents = 'none';
+    minimapCanvas.style.zIndex = '1000';
+    minimapCanvas.style.boxShadow = '0 0 20px rgba(0, 0, 0, 0.8)';
+    
+    // Append to body directly
+    document.body.appendChild(minimapCanvas);
+    
+    const minimapCtx = minimapCanvas.getContext('2d');
+    const minimapScale = 0.001; // 1 pixel = 1000 units
+    const minimapCenter = { x: 125, y: 125 };
 
     // ========== SUN (Our Star) ==========
     const sunGroup = new THREE.Group();
@@ -744,6 +767,119 @@ const UniverseSimulationNASA = () => {
       if (keys[' ']) camera.position.y += moveDistance;
       if (keys['control']) camera.position.y -= moveDistance;
 
+      // Update camera position state
+      setCameraPos({ 
+        x: camera.position.x, 
+        y: camera.position.y, 
+        z: camera.position.z 
+      });
+
+      // Draw minimap
+      minimapCtx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+      minimapCtx.fillRect(0, 0, 250, 250);
+      
+      // Draw border glow
+      minimapCtx.strokeStyle = 'rgba(0, 255, 255, 0.3)';
+      minimapCtx.lineWidth = 2;
+      minimapCtx.strokeRect(1, 1, 248, 248);
+      
+      // Grid lines
+      minimapCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+      minimapCtx.lineWidth = 1;
+      for (let i = 0; i <= 250; i += 25) {
+        minimapCtx.beginPath();
+        minimapCtx.moveTo(i, 0);
+        minimapCtx.lineTo(i, 250);
+        minimapCtx.moveTo(0, i);
+        minimapCtx.lineTo(250, i);
+        minimapCtx.stroke();
+      }
+      
+      // Draw title
+      minimapCtx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+      minimapCtx.font = 'bold 12px monospace';
+      minimapCtx.fillText('NAVIGATION MAP', 10, 20);
+      
+      // Draw scale indicator
+      minimapCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      minimapCtx.font = '10px monospace';
+      minimapCtx.fillText('Scale: 1px = 1000 units', 10, 240);
+      
+      // Draw Sun at center
+      minimapCtx.fillStyle = '#ffff00';
+      minimapCtx.beginPath();
+      minimapCtx.arc(minimapCenter.x, minimapCenter.y, 5, 0, Math.PI * 2);
+      minimapCtx.fill();
+      minimapCtx.fillText('Sun', minimapCenter.x + 7, minimapCenter.y + 3);
+      
+      // Draw planets
+      planets.forEach(planet => {
+        const x = minimapCenter.x + planet.position.x * minimapScale;
+        const y = minimapCenter.y + planet.position.z * minimapScale;
+        
+        if (x >= 0 && x <= 250 && y >= 0 && y <= 250) {
+          minimapCtx.fillStyle = '#4444ff';
+          minimapCtx.beginPath();
+          minimapCtx.arc(x, y, 2, 0, Math.PI * 2);
+          minimapCtx.fill();
+          
+          // Label inner planets
+          if (planet.userData.distance < 200) {
+            minimapCtx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+            minimapCtx.font = '8px monospace';
+            minimapCtx.fillText(planet.userData.name[0], x + 3, y + 2);
+          }
+        }
+      });
+      
+      // Draw asteroids as dots
+      minimapCtx.fillStyle = 'rgba(128, 128, 128, 0.5)';
+      asteroids.forEach(asteroid => {
+        const x = minimapCenter.x + asteroid.position.x * minimapScale;
+        const y = minimapCenter.y + asteroid.position.z * minimapScale;
+        
+        if (x >= 0 && x <= 250 && y >= 0 && y <= 250) {
+          minimapCtx.fillRect(x, y, 1, 1);
+        }
+      });
+      
+      // Draw nearby stars/exoplanets
+      minimapCtx.fillStyle = 'rgba(255, 200, 100, 0.7)';
+      exoplanetGroup.children.forEach(obj => {
+        const x = minimapCenter.x + obj.position.x * minimapScale;
+        const y = minimapCenter.y + obj.position.z * minimapScale;
+        
+        if (x >= 0 && x <= 250 && y >= 0 && y <= 250) {
+          minimapCtx.beginPath();
+          minimapCtx.arc(x, y, 1, 0, Math.PI * 2);
+          minimapCtx.fill();
+        }
+      });
+      
+      // Draw camera position
+      const camX = minimapCenter.x + camera.position.x * minimapScale;
+      const camZ = minimapCenter.y + camera.position.z * minimapScale;
+      
+      minimapCtx.strokeStyle = '#00ff00';
+      minimapCtx.lineWidth = 2;
+      minimapCtx.beginPath();
+      minimapCtx.arc(camX, camZ, 5, 0, Math.PI * 2);
+      minimapCtx.stroke();
+      
+      // Camera direction indicator
+      const dirLength = 10;
+      const dirX = Math.sin(camera.rotation.y) * dirLength;
+      const dirZ = -Math.cos(camera.rotation.y) * dirLength;
+      minimapCtx.beginPath();
+      minimapCtx.moveTo(camX, camZ);
+      minimapCtx.lineTo(camX + dirX, camZ + dirZ);
+      minimapCtx.stroke();
+      
+      // Camera position text
+      minimapCtx.fillStyle = '#00ff00';
+      minimapCtx.font = '10px monospace';
+      minimapCtx.fillText('You', camX + 7, camZ + 3);
+
       renderer.render(scene, camera);
     };
 
@@ -763,6 +899,9 @@ const UniverseSimulationNASA = () => {
       if (mountRef.current && renderer.domElement) {
         mountRef.current.removeChild(renderer.domElement);
       }
+      if (minimapCanvas && minimapCanvas.parentNode) {
+        document.body.removeChild(minimapCanvas);
+      }
       renderer.dispose();
     };
   }, []);
@@ -770,6 +909,7 @@ const UniverseSimulationNASA = () => {
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
       <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
+      <div ref={minimapRef} style={{ position: 'absolute', width: '100%', height: '100%', pointerEvents: 'none' }} />
       <div style={{
         position: 'absolute',
         top: '10px',
@@ -785,6 +925,7 @@ const UniverseSimulationNASA = () => {
         <div>Time Scale: 1 day = 1 minute</div>
         <div>Controls: WASD + Mouse (click to lock)</div>
         <div>Shift: Fast travel | Space/Ctrl: Up/Down</div>
+        <div>Position: ({Math.round(cameraPos.x)}, {Math.round(cameraPos.y)}, {Math.round(cameraPos.z)})</div>
       </div>
     </div>
   );
