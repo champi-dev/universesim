@@ -1,11 +1,11 @@
 import React from "react";
-import UniverseSimulation from "./UniverseSimulation";
+import UniverseSimulationNASA from "./UniverseSimulationNASA";
 import "./App.css";
 
 function App() {
   return (
     <div className="App">
-      <UniverseSimulation />
+      <UniverseSimulationNASA />
     </div>
   );
 }
