@@ -725,17 +725,24 @@ const UniverseSimulationNASA = () => {
       // Rotate star field
       starField.rotation.y += 0.00002;
 
-      // Camera movement
+      // Camera movement - constant speed
       const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
       const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
       
-      const speed = keys['shift'] ? 100 : 20;
-      if (keys['w']) camera.position.addScaledVector(forward, speed);
-      if (keys['s']) camera.position.addScaledVector(forward, -speed);
-      if (keys['a']) camera.position.addScaledVector(right, -speed);
-      if (keys['d']) camera.position.addScaledVector(right, speed);
-      if (keys[' ']) camera.position.y += speed;
-      if (keys['control']) camera.position.y -= speed;
+      // Base speed: 500 units/second (5 AU/second at normal speed)
+      // Shift multiplier: 10x faster (50 AU/second)
+      const baseSpeed = 500;
+      const speed = keys['shift'] ? baseSpeed * 10 : baseSpeed;
+      
+      // Apply constant movement based on deltaTime for smooth motion
+      const moveDistance = speed * deltaTime;
+      
+      if (keys['w']) camera.position.addScaledVector(forward, moveDistance);
+      if (keys['s']) camera.position.addScaledVector(forward, -moveDistance);
+      if (keys['a']) camera.position.addScaledVector(right, -moveDistance);
+      if (keys['d']) camera.position.addScaledVector(right, moveDistance);
+      if (keys[' ']) camera.position.y += moveDistance;
+      if (keys['control']) camera.position.y -= moveDistance;
 
       renderer.render(scene, camera);
     };
