@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import { ParallelNaniteSystem, createParallelNanitePlanet, createParallelNaniteGalaxy } from "./NaniteSystemParallel";
 import { preloadedAsteroids, preloadedNebulae } from "./data/preloadedData";
+import { STAR_COLORS, NEBULA_COLORS } from "./data/astronomicalColors";
 
 // Constants
 const AU_SCALE = 100;
@@ -110,8 +111,8 @@ const UniverseSimulationParallel = () => {
           uniforms: {
             time: { value: 0 },
             viewVector: { value: new THREE.Vector3() },
-            sunColor: { value: new THREE.Color(0xffffff) },
-            coronaColor: { value: new THREE.Color(0xffaa00) }
+            sunColor: { value: new THREE.Color(STAR_COLORS['G'].r, STAR_COLORS['G'].g, STAR_COLORS['G'].b) },
+            coronaColor: { value: new THREE.Color(1.0, 0.5, 0.1) }
           },
           vertexShader: `
             varying vec3 vNormal;
@@ -202,54 +203,517 @@ const UniverseSimulationParallel = () => {
         
         scene.add(sunGroup);
         
-        // ========== PLANETS with realistic materials ==========
+        // ========== HYPERDETAILED PLANETS with PBR materials ==========
+        const createHyperdetailedPlanet = async (data) => {
+          const group = new THREE.Group();
+          group.name = data.name;
+          
+          // Base detail level based on distance
+          const getDetailLevel = (distance) => {
+            if (distance < data.size * 10) return 'ultra'; // Very close
+            if (distance < data.size * 50) return 'high';  // Close
+            if (distance < data.size * 200) return 'medium'; // Mid range
+            return 'low'; // Far
+          };
+          
+          // Create planet with dynamic LOD
+          const createPlanetMesh = (detailLevel) => {
+            let segments = 16;
+            if (detailLevel === 'ultra') segments = 256;
+            else if (detailLevel === 'high') segments = 128;
+            else if (detailLevel === 'medium') segments = 64;
+            
+            const geometry = new THREE.SphereGeometry(data.size, segments, segments);
+            
+            // Add surface detail with displacement
+            if (detailLevel === 'ultra' || detailLevel === 'high') {
+              const positions = geometry.attributes.position;
+              for (let i = 0; i < positions.count; i++) {
+                const x = positions.getX(i);
+                const y = positions.getY(i);
+                const z = positions.getZ(i);
+                
+                // Add terrain features
+                let displacement = 0;
+                
+                // Normalize position for noise calculations
+                const len = Math.sqrt(x * x + y * y + z * z);
+                const nx = x / len;
+                const ny = y / len;
+                const nz = z / len;
+                
+                // Craters for rocky planets
+                if (data.type === 'rocky' || data.name === 'Mercury' || data.name === 'Mars') {
+                  // Large impact craters
+                  const crater1 = Math.exp(-((nx - 0.5) * (nx - 0.5) + (ny - 0.3) * (ny - 0.3)) * 50) * -0.03;
+                  const crater2 = Math.exp(-((nx + 0.4) * (nx + 0.4) + (nz - 0.6) * (nz - 0.6)) * 40) * -0.02;
+                  const crater3 = Math.exp(-((ny - 0.7) * (ny - 0.7) + (nz + 0.2) * (nz + 0.2)) * 60) * -0.025;
+                  displacement += crater1 + crater2 + crater3;
+                  
+                  // Small crater field
+                  const smallCraters = Math.sin(nx * 80) * Math.cos(ny * 80) * Math.sin(nz * 80);
+                  displacement += smallCraters * 0.005;
+                }
+                
+                // Mountains and valleys with multiple octaves
+                const mountainNoise1 = Math.sin(nx * 5) * Math.cos(ny * 5) * 0.02;
+                const mountainNoise2 = Math.sin(nx * 15 + 1) * Math.cos(nz * 15 + 2) * 0.01;
+                const mountainNoise3 = Math.sin(ny * 25 + 3) * Math.cos(nz * 25 + 4) * 0.005;
+                const terrainNoise = mountainNoise1 + mountainNoise2 + mountainNoise3;
+                
+                // Continental features for Earth
+                if (data.name === 'Earth') {
+                  const continental = Math.sin(nx * 3 + 0.5) * Math.cos(ny * 2 - 0.3) + 
+                                    Math.sin(nz * 2.5 + 1.2) * 0.5;
+                  displacement += continental > 0.3 ? terrainNoise * 2 : terrainNoise * 0.1;
+                } else {
+                  displacement += terrainNoise;
+                }
+                
+                // Mars specific - Olympus Mons and Valles Marineris
+                if (data.name === 'Mars') {
+                  // Olympus Mons
+                  const olympus = Math.exp(-((nx - 0.2) * (nx - 0.2) + (ny - 0.4) * (ny - 0.4)) * 100) * 0.04;
+                  displacement += olympus;
+                  
+                  // Valles Marineris canyon
+                  if (Math.abs(ny) < 0.1 && nx > -0.3 && nx < 0.5) {
+                    displacement -= 0.015;
+                  }
+                }
+                
+                // Apply displacement
+                const length = Math.sqrt(x * x + y * y + z * z);
+                const scale = (length + displacement * data.size) / length;
+                positions.setXYZ(i, x * scale, y * scale, z * scale);
+              }
+              geometry.computeVertexNormals();
+            }
+            
+            return geometry;
+          };
+          
+          // Create hyperrealistic material
+          const createPlanetMaterial = () => {
+            // Earth special case - most detailed
+            if (data.name === 'Earth') {
+              return new THREE.ShaderMaterial({
+                uniforms: {
+                  dayTexture: { value: null }, // Would load Earth day texture
+                  nightTexture: { value: null }, // Would load Earth night texture
+                  cloudsTexture: { value: null }, // Would load clouds
+                  time: { value: 0 },
+                  sunPosition: { value: new THREE.Vector3(0, 0, 0) },
+                  atmosphereColor: { value: new THREE.Color(0.3, 0.5, 1.0) }
+                },
+                vertexShader: `
+                  varying vec3 vNormal;
+                  varying vec3 vPosition;
+                  varying vec2 vUv;
+                  
+                  void main() {
+                    vUv = uv;
+                    vNormal = normalize(normalMatrix * normal);
+                    vPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                  }
+                `,
+                fragmentShader: `
+                  uniform vec3 sunPosition;
+                  uniform float time;
+                  uniform vec3 atmosphereColor;
+                  varying vec3 vNormal;
+                  varying vec3 vPosition;
+                  varying vec2 vUv;
+                  
+                  void main() {
+                    vec3 lightDir = normalize(sunPosition - vPosition);
+                    float diff = max(dot(vNormal, lightDir), 0.0);
+                    
+                    // Base color with continents
+                    vec3 landColor = vec3(0.2, 0.5, 0.1);
+                    vec3 oceanColor = vec3(0.1, 0.3, 0.6);
+                    
+                    // Simple continent pattern
+                    float continents = sin(vUv.x * 10.0) * cos(vUv.y * 5.0);
+                    vec3 surfaceColor = mix(oceanColor, landColor, step(0.3, continents));
+                    
+                    // Cloud layer
+                    float clouds = sin(vUv.x * 20.0 + time * 0.1) * cos(vUv.y * 15.0 - time * 0.05);
+                    clouds = smoothstep(0.5, 0.7, clouds);
+                    surfaceColor = mix(surfaceColor, vec3(1.0), clouds * 0.7);
+                    
+                    // Atmosphere on edges
+                    float rim = 1.0 - dot(vNormal, normalize(cameraPosition - vPosition));
+                    rim = pow(rim, 2.0);
+                    vec3 atmosphere = atmosphereColor * rim;
+                    
+                    // Night side city lights
+                    float nightLights = 0.0;
+                    if (diff < 0.1) {
+                      nightLights = continents * (1.0 - clouds) * 0.5;
+                      surfaceColor += vec3(1.0, 0.8, 0.4) * nightLights;
+                    }
+                    
+                    // Final color
+                    vec3 finalColor = surfaceColor * (diff + 0.2) + atmosphere;
+                    gl_FragColor = vec4(finalColor, 1.0);
+                  }
+                `
+              });
+            }
+            
+            // Gas giants with atmospheric bands
+            if (data.name === 'Jupiter' || data.name === 'Saturn') {
+              return new THREE.ShaderMaterial({
+                uniforms: {
+                  time: { value: 0 },
+                  baseColor: { value: new THREE.Color(data.color) },
+                  bandColor1: { value: new THREE.Color(data.color).multiplyScalar(1.2) },
+                  bandColor2: { value: new THREE.Color(data.color).multiplyScalar(0.8) }
+                },
+                vertexShader: `
+                  varying vec3 vNormal;
+                  varying vec3 vPosition;
+                  varying vec2 vUv;
+                  
+                  void main() {
+                    vUv = uv;
+                    vNormal = normalize(normalMatrix * normal);
+                    vPosition = position;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                  }
+                `,
+                fragmentShader: `
+                  uniform float time;
+                  uniform vec3 baseColor;
+                  uniform vec3 bandColor1;
+                  uniform vec3 bandColor2;
+                  varying vec3 vNormal;
+                  varying vec3 vPosition;
+                  varying vec2 vUv;
+                  
+                  void main() {
+                    // Atmospheric bands
+                    float bands = sin(vUv.y * 20.0 + sin(vUv.x * 5.0 + time * 0.1) * 0.5);
+                    vec3 color = mix(baseColor, bandColor1, smoothstep(-0.5, 0.5, bands));
+                    color = mix(color, bandColor2, smoothstep(0.5, 1.0, bands));
+                    
+                    // Storm patterns
+                    float storm = sin(vUv.x * 30.0 + time * 0.5) * cos(vUv.y * 40.0 - time * 0.3);
+                    storm = smoothstep(0.7, 0.9, storm);
+                    color = mix(color, vec3(1.0, 0.9, 0.8), storm * 0.3);
+                    
+                    // Great Red Spot for Jupiter
+                    ${data.name === 'Jupiter' ? `
+                      vec2 spotCenter = vec2(0.3, 0.6);
+                      float spotDist = distance(vUv, spotCenter);
+                      if (spotDist < 0.05) {
+                        float spotIntensity = 1.0 - spotDist / 0.05;
+                        color = mix(color, vec3(0.8, 0.3, 0.2), spotIntensity * 0.7);
+                      }
+                    ` : ''}
+                    
+                    // Lighting
+                    vec3 lightDir = normalize(vec3(1.0, 0.5, 0.3));
+                    float diff = max(dot(vNormal, lightDir), 0.0);
+                    
+                    gl_FragColor = vec4(color * (diff + 0.3), 1.0);
+                  }
+                `
+              });
+            }
+            
+            // Default PBR material for other planets
+            return new THREE.MeshPhysicalMaterial({
+              color: data.color,
+              metalness: data.metalness,
+              roughness: data.roughness,
+              normalScale: new THREE.Vector2(1, 1),
+              emissive: data.color,
+              emissiveIntensity: 0.01,
+              clearcoat: data.atmosphere ? 0.3 : 0,
+              clearcoatRoughness: 0.4,
+              // Add bump map for surface detail
+              bumpScale: 0.05
+            });
+          };
+          
+          // Create the base planet mesh
+          const material = createPlanetMaterial();
+          let planet;
+          
+          if (naniteSystemRef.current && data.size > 0.5) { // Use Nanite for larger objects
+            try {
+              // Create high-detail base mesh for Nanite
+              const baseGeometry = createPlanetMesh('high');
+              const baseMesh = new THREE.Mesh(baseGeometry, material);
+              await naniteSystemRef.current.createLODHierarchy(baseMesh, 6); // More LOD levels
+              planet = baseMesh;
+            } catch (err) {
+              console.error(`Failed to create Nanite planet ${data.name}:`, err);
+              planet = new THREE.Mesh(createPlanetMesh('medium'), material);
+            }
+          } else {
+            planet = new THREE.Mesh(createPlanetMesh('medium'), material);
+          }
+          
+          planet.castShadow = !mobile && data.size > 0.5;
+          planet.receiveShadow = !mobile;
+          group.add(planet);
+          
+          // Add atmosphere for planets that have one
+          if (data.atmosphere) {
+            const atmosphereGeometry = new THREE.SphereGeometry(data.size * 1.15, 64, 64);
+            const atmosphereMaterial = new THREE.ShaderMaterial({
+              uniforms: {
+                color: { value: data.atmosphereColor || new THREE.Color(0.3, 0.5, 1.0) },
+                intensity: { value: 1.5 }
+              },
+              vertexShader: `
+                varying vec3 vNormal;
+                varying vec3 vPosition;
+                
+                void main() {
+                  vNormal = normalize(normalMatrix * normal);
+                  vPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+              `,
+              fragmentShader: `
+                uniform vec3 color;
+                uniform float intensity;
+                varying vec3 vNormal;
+                varying vec3 vPosition;
+                
+                // Rayleigh scattering coefficients
+                const vec3 betaR = vec3(5.8e-3, 1.35e-2, 3.31e-2);
+                
+                void main() {
+                  vec3 viewDir = normalize(cameraPosition - vPosition);
+                  float rim = 1.0 - abs(dot(vNormal, viewDir));
+                  rim = pow(rim, 2.0);
+                  
+                  // Rayleigh scattering effect
+                  float sunAngle = dot(normalize(vec3(0.0, 0.0, 0.0) - vPosition), viewDir);
+                  float rayleighPhase = 0.75 * (1.0 + sunAngle * sunAngle);
+                  
+                  // Wavelength-dependent scattering
+                  vec3 scatteredColor = color;
+                  scatteredColor.r *= 1.0 + betaR.r * rayleighPhase;
+                  scatteredColor.g *= 1.0 + betaR.g * rayleighPhase;
+                  scatteredColor.b *= 1.0 + betaR.b * rayleighPhase * 1.5; // More blue scattering
+                  
+                  // Add sunset/sunrise effect at grazing angles
+                  float sunsetFactor = pow(max(0.0, -sunAngle), 3.0);
+                  scatteredColor = mix(scatteredColor, vec3(1.0, 0.6, 0.3), sunsetFactor * 0.5);
+                  
+                  gl_FragColor = vec4(scatteredColor * intensity, rim * 0.8);
+                }
+              `,
+              transparent: true,
+              blending: THREE.AdditiveBlending,
+              side: THREE.BackSide,
+              depthWrite: false
+            });
+            
+            const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
+            group.add(atmosphere);
+          }
+          
+          // Add rings for Saturn
+          if (data.name === 'Saturn') {
+            const ringGeometry = new THREE.RingGeometry(data.size * 1.5, data.size * 2.5, 128);
+            const ringMaterial = new THREE.ShaderMaterial({
+              uniforms: {
+                innerRadius: { value: data.size * 1.5 },
+                outerRadius: { value: data.size * 2.5 }
+              },
+              vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                  vUv = uv;
+                  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+              `,
+              fragmentShader: `
+                uniform float innerRadius;
+                uniform float outerRadius;
+                varying vec2 vUv;
+                
+                void main() {
+                  float dist = length(vUv - 0.5) * 2.0;
+                  float radius = mix(innerRadius, outerRadius, vUv.x);
+                  
+                  // Ring bands
+                  float bands = sin(vUv.x * 100.0) * 0.5 + 0.5;
+                  vec3 color = mix(vec3(0.8, 0.7, 0.5), vec3(0.6, 0.5, 0.3), bands);
+                  
+                  // Transparency based on density
+                  float alpha = 0.8 - vUv.x * 0.3;
+                  alpha *= smoothstep(0.0, 0.1, vUv.x) * smoothstep(1.0, 0.9, vUv.x);
+                  
+                  gl_FragColor = vec4(color, alpha);
+                }
+              `,
+              transparent: true,
+              side: THREE.DoubleSide,
+              depthWrite: false
+            });
+            
+            const rings = new THREE.Mesh(ringGeometry, ringMaterial);
+            rings.rotation.x = Math.PI / 2;
+            group.add(rings);
+          }
+          
+          // Add moons for major planets
+          if (data.moons && data.moons.length > 0) {
+            for (const moonData of data.moons) {
+              const moonGeometry = createPlanetMesh('medium');
+              
+              // Create detailed moon material with craters
+              const moonMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                  sunPosition: { value: new THREE.Vector3(0, 0, 0) },
+                  baseColor: { value: new THREE.Color(0xaaaaaa) }
+                },
+                vertexShader: `
+                  varying vec3 vNormal;
+                  varying vec3 vPosition;
+                  varying vec2 vUv;
+                  
+                  void main() {
+                    vUv = uv;
+                    vNormal = normalize(normalMatrix * normal);
+                    vPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                  }
+                `,
+                fragmentShader: `
+                  uniform vec3 sunPosition;
+                  uniform vec3 baseColor;
+                  varying vec3 vNormal;
+                  varying vec3 vPosition;
+                  varying vec2 vUv;
+                  
+                  void main() {
+                    vec3 lightDir = normalize(sunPosition - vPosition);
+                    float diff = max(dot(vNormal, lightDir), 0.0);
+                    
+                    // Crater pattern
+                    float crater1 = 1.0 - smoothstep(0.0, 0.05, distance(vUv, vec2(0.3, 0.4)));
+                    float crater2 = 1.0 - smoothstep(0.0, 0.03, distance(vUv, vec2(0.7, 0.6)));
+                    float crater3 = 1.0 - smoothstep(0.0, 0.04, distance(vUv, vec2(0.5, 0.8)));
+                    float craters = max(max(crater1, crater2), crater3) * 0.3;
+                    
+                    // Mare (dark regions)
+                    float mare = smoothstep(0.4, 0.6, sin(vUv.x * 5.0) * cos(vUv.y * 3.0));
+                    vec3 surfaceColor = mix(baseColor, baseColor * 0.7, mare);
+                    surfaceColor = mix(surfaceColor, baseColor * 0.5, craters);
+                    
+                    // Final color with lighting
+                    vec3 finalColor = surfaceColor * (diff * 0.8 + 0.2);
+                    gl_FragColor = vec4(finalColor, 1.0);
+                  }
+                `
+              });
+              
+              const moon = new THREE.Mesh(moonGeometry, moonMaterial);
+              moon.scale.setScalar(moonData.size);
+              
+              // Store moon orbit data
+              moon.userData = {
+                distance: moonData.distance * data.size,
+                speed: moonData.speed,
+                angle: Math.random() * Math.PI * 2
+              };
+              
+              group.add(moon);
+            }
+          }
+          
+          return group;
+        };
+        
+        // Enhanced planet data with more properties
         const planetData = [
-          { name: "Mercury", distance: 0.39, size: 0.38, color: 0x8c7853, speed: 4.15, metalness: 0.8, roughness: 0.9 },
-          { name: "Venus", distance: 0.72, size: 0.95, color: 0xffc649, speed: 1.62, metalness: 0.3, roughness: 0.7 },
-          { name: "Earth", distance: 1.0, size: 1.0, color: 0x2233ff, speed: 1, metalness: 0.2, roughness: 0.5 },
-          { name: "Mars", distance: 1.52, size: 0.53, color: 0xcd5c5c, speed: 0.53, metalness: 0.6, roughness: 0.8 },
-          { name: "Jupiter", distance: 5.2, size: 11.2, color: 0xdaa520, speed: 0.084, metalness: 0.1, roughness: 0.3 },
-          { name: "Saturn", distance: 9.58, size: 9.45, color: 0xf4a460, speed: 0.034, metalness: 0.1, roughness: 0.4 },
-          { name: "Uranus", distance: 19.22, size: 4.0, color: 0x4fd1c5, speed: 0.012, metalness: 0.2, roughness: 0.3 },
-          { name: "Neptune", distance: 30.05, size: 3.88, color: 0x4169e1, speed: 0.006, metalness: 0.2, roughness: 0.3 }
+          { 
+            name: "Mercury", distance: 0.39, size: 0.38, color: 0x8c7853, speed: 4.15, 
+            metalness: 0.8, roughness: 0.9, type: 'rocky', atmosphere: false 
+          },
+          { 
+            name: "Venus", distance: 0.72, size: 0.95, color: 0xffc649, speed: 1.62, 
+            metalness: 0.3, roughness: 0.7, type: 'rocky', atmosphere: true,
+            atmosphereColor: new THREE.Color(0.9, 0.8, 0.3)
+          },
+          { 
+            name: "Earth", distance: 1.0, size: 1.0, color: 0x2233ff, speed: 1, 
+            metalness: 0.2, roughness: 0.5, type: 'rocky', atmosphere: true,
+            atmosphereColor: new THREE.Color(0.3, 0.5, 1.0),
+            moons: [{ name: "Moon", size: 0.27, distance: 3, speed: 0.1 }]
+          },
+          { 
+            name: "Mars", distance: 1.52, size: 0.53, color: 0xcd5c5c, speed: 0.53, 
+            metalness: 0.6, roughness: 0.8, type: 'rocky', atmosphere: true,
+            atmosphereColor: new THREE.Color(0.8, 0.6, 0.4),
+            moons: [
+              { name: "Phobos", size: 0.1, distance: 2, speed: 0.3 },
+              { name: "Deimos", size: 0.08, distance: 3, speed: 0.2 }
+            ]
+          },
+          { 
+            name: "Jupiter", distance: 5.2, size: 11.2, color: 0xdaa520, speed: 0.084, 
+            metalness: 0.1, roughness: 0.3, type: 'gas', atmosphere: true,
+            atmosphereColor: new THREE.Color(0.9, 0.8, 0.6),
+            moons: [
+              { name: "Io", size: 0.28, distance: 3, speed: 0.4 },
+              { name: "Europa", size: 0.24, distance: 4, speed: 0.3 },
+              { name: "Ganymede", size: 0.41, distance: 5, speed: 0.2 },
+              { name: "Callisto", size: 0.38, distance: 6, speed: 0.1 }
+            ]
+          },
+          { 
+            name: "Saturn", distance: 9.58, size: 9.45, color: 0xf4a460, speed: 0.034, 
+            metalness: 0.1, roughness: 0.4, type: 'gas', atmosphere: true,
+            atmosphereColor: new THREE.Color(0.9, 0.8, 0.5),
+            moons: [
+              { name: "Titan", size: 0.40, distance: 4, speed: 0.2 },
+              { name: "Rhea", size: 0.12, distance: 5, speed: 0.15 }
+            ]
+          },
+          { 
+            name: "Uranus", distance: 19.22, size: 4.0, color: 0x4fd1c5, speed: 0.012, 
+            metalness: 0.2, roughness: 0.3, type: 'ice', atmosphere: true,
+            atmosphereColor: new THREE.Color(0.4, 0.7, 0.8)
+          },
+          { 
+            name: "Neptune", distance: 30.05, size: 3.88, color: 0x4169e1, speed: 0.006, 
+            metalness: 0.2, roughness: 0.3, type: 'ice', atmosphere: true,
+            atmosphereColor: new THREE.Color(0.2, 0.4, 0.8)
+          }
         ];
         
         const planets = [];
         for (const data of planetData) {
-          const material = new THREE.MeshPhysicalMaterial({
-            color: data.color,
-            metalness: data.metalness,
-            roughness: data.roughness,
-            emissive: data.color,
-            emissiveIntensity: 0.02,
-            clearcoat: data.name === "Earth" ? 0.3 : 0,
-            clearcoatRoughness: 0.4
-          });
-          
-          let planet;
-          if (naniteSystemRef.current) {
-            try {
-              planet = await createParallelNanitePlanet(data.size, 32, material, naniteSystemRef.current);
-            } catch (err) {
-              console.error(`Failed to create Nanite planet ${data.name}:`, err);
-              planet = new THREE.Mesh(new THREE.SphereGeometry(data.size, 32, 32), material);
-            }
-          } else {
-            planet = new THREE.Mesh(new THREE.SphereGeometry(data.size, 32, 32), material);
-          }
-          planet.castShadow = !mobile;
-          planet.receiveShadow = !mobile;
+          const planetGroup = await createHyperdetailedPlanet(data);
+          planetGroup.position.set(
+            Math.cos(Math.random() * Math.PI * 2) * data.distance * AU_SCALE,
+            0,
+            Math.sin(Math.random() * Math.PI * 2) * data.distance * AU_SCALE
+          );
           
           // Store planet data for animation
           planets.push({
             name: data.name,
-            mesh: planet,
+            group: planetGroup,
+            mesh: planetGroup.children[0], // Main planet mesh
             distance: data.distance * AU_SCALE,
             speed: data.speed * TIME_SCALE,
-            angle: Math.random() * Math.PI * 2
+            angle: Math.random() * Math.PI * 2,
+            moons: planetGroup.children.filter(child => child.userData.distance)
           });
           
-          scene.add(planet);
+          scene.add(planetGroup);
         }
         
         // ========== ASTEROID BELT with instancing ==========
@@ -328,9 +792,22 @@ const UniverseSimulationParallel = () => {
               positions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
               positions[i3 + 2] = radius * Math.cos(phi);
               
-              colors[i3] = 0.8 + Math.random() * 0.2;
-              colors[i3 + 1] = 0.8 + Math.random() * 0.2;
-              colors[i3 + 2] = 0.9 + Math.random() * 0.1;
+              // Use real star colors based on spectral distribution
+              const spectralRoll = Math.random();
+              let starColor;
+              if (spectralRoll < 0.001) starColor = STAR_COLORS['O']; // Rare blue giants
+              else if (spectralRoll < 0.006) starColor = STAR_COLORS['B']; // Blue-white
+              else if (spectralRoll < 0.03) starColor = STAR_COLORS['A']; // White
+              else if (spectralRoll < 0.08) starColor = STAR_COLORS['F']; // Yellow-white
+              else if (spectralRoll < 0.16) starColor = STAR_COLORS['G']; // Sun-like
+              else if (spectralRoll < 0.40) starColor = STAR_COLORS['K']; // Orange
+              else starColor = STAR_COLORS['M']; // Red dwarfs (most common)
+              
+              // Add some variation
+              const variation = 0.2;
+              colors[i3] = starColor.r + (Math.random() - 0.5) * variation;
+              colors[i3 + 1] = starColor.g + (Math.random() - 0.5) * variation;
+              colors[i3 + 2] = starColor.b + (Math.random() - 0.5) * variation;
             }
             
             starGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -454,59 +931,210 @@ const UniverseSimulationParallel = () => {
         nebulaGroup.name = 'nebulae';
         
         const createNebula = (nebula, index) => {
-          const nebulaShader = new THREE.ShaderMaterial({
-            uniforms: {
-              time: { value: 0 },
-              color1: { value: new THREE.Color(nebula.type === 'emission' ? 0xff0066 : 0x00ff66) },
-              color2: { value: new THREE.Color(nebula.type === 'emission' ? 0xff6600 : 0x00ffff) },
-              opacity: { value: 0.3 }
-            },
-            vertexShader: `
-              varying vec3 vPosition;
-              varying vec3 vNormal;
-              
-              void main() {
-                vPosition = position;
-                vNormal = normal;
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-              }
-            `,
-            fragmentShader: `
-              uniform float time;
-              uniform vec3 color1;
-              uniform vec3 color2;
-              uniform float opacity;
-              varying vec3 vPosition;
-              varying vec3 vNormal;
-              
-              void main() {
-                float noise = sin(vPosition.x * 0.01 + time) * 
-                             sin(vPosition.y * 0.01 + time * 0.8) * 
-                             sin(vPosition.z * 0.01 + time * 1.2);
-                
-                float d = length(vPosition) / 1000.0;
-                vec3 color = mix(color1, color2, d + noise * 0.2);
-                
-                float alpha = (1.0 - d) * opacity * (0.8 + noise * 0.2);
-                gl_FragColor = vec4(color * 2.0, alpha);
-              }
-            `,
-            transparent: true,
-            blending: THREE.AdditiveBlending,
-            side: THREE.DoubleSide,
-            depthWrite: false
-          });
+          const nebulaGroup = new THREE.Group();
           
-          const nebulaGeometry = new THREE.IcosahedronGeometry(nebula.size || 1000, 3);
-          const nebulaMesh = new THREE.Mesh(nebulaGeometry, nebulaShader);
+          // Use real nebula colors based on type
+          const nebulaColors = NEBULA_COLORS[nebula.type] || NEBULA_COLORS['emission'];
+          const color1 = new THREE.Color(nebulaColors[0].r, nebulaColors[0].g, nebulaColors[0].b);
+          const color2 = new THREE.Color(nebulaColors[1].r, nebulaColors[1].g, nebulaColors[1].b);
+          const color3 = nebulaColors[2] ? new THREE.Color(nebulaColors[2].r, nebulaColors[2].g, nebulaColors[2].b) : color1;
           
-          nebulaMesh.position.set(
+          // Create multiple layers for JWST-like depth
+          const layerCount = mobile ? 3 : 5;
+          const baseSize = nebula.size || 1000;
+          
+          for (let layer = 0; layer < layerCount; layer++) {
+            const layerSize = baseSize * (1 + layer * 0.3);
+            const layerOpacity = 0.3 - layer * 0.05;
+            
+            // Create volumetric cloud particles for each layer
+            const particleCount = mobile ? 1000 : 3000;
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3);
+            const colors = new Float32Array(particleCount * 3);
+            const sizes = new Float32Array(particleCount);
+            const alphas = new Float32Array(particleCount);
+            
+            for (let i = 0; i < particleCount; i++) {
+              // Create pillar-like structures
+              const angle = Math.random() * Math.PI * 2;
+              const radius = Math.random() * layerSize;
+              const height = (Math.random() - 0.5) * layerSize * 0.8;
+              
+              // Add turbulence for realistic cloud structure
+              const turbulence = Math.random() * 100;
+              const pillarProbability = Math.random();
+              
+              if (pillarProbability < 0.3) {
+                // Create pillar structures
+                positions[i * 3] = Math.cos(angle) * radius * 0.3 + turbulence;
+                positions[i * 3 + 1] = height * 2; // Tall pillars
+                positions[i * 3 + 2] = Math.sin(angle) * radius * 0.3 + turbulence;
+              } else {
+                // Regular cloud distribution
+                positions[i * 3] = Math.cos(angle) * radius + turbulence;
+                positions[i * 3 + 1] = height + Math.sin(radius * 0.01) * 200;
+                positions[i * 3 + 2] = Math.sin(angle) * radius + turbulence;
+              }
+              
+              // Color variation based on position
+              const colorMix = Math.random();
+              const selectedColor = colorMix < 0.33 ? color1 : colorMix < 0.66 ? color2 : color3;
+              colors[i * 3] = selectedColor.r;
+              colors[i * 3 + 1] = selectedColor.g;
+              colors[i * 3 + 2] = selectedColor.b;
+              
+              // Size variation for depth
+              sizes[i] = Math.random() * 50 + 20;
+              alphas[i] = Math.random() * layerOpacity + 0.1;
+            }
+            
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            geometry.setAttribute('alpha', new THREE.BufferAttribute(alphas, 1));
+            
+            // JWST-style shader
+            const material = new THREE.ShaderMaterial({
+              uniforms: {
+                time: { value: 0 },
+                layer: { value: layer }
+              },
+              vertexShader: `
+                attribute float size;
+                attribute float alpha;
+                varying vec3 vColor;
+                varying float vAlpha;
+                uniform float time;
+                
+                void main() {
+                  vColor = color;
+                  vAlpha = alpha;
+                  
+                  vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                  gl_PointSize = size * (1000.0 / -mvPosition.z);
+                  gl_PointSize = clamp(gl_PointSize, 1.0, 100.0);
+                  gl_Position = projectionMatrix * mvPosition;
+                }
+              `,
+              fragmentShader: `
+                varying vec3 vColor;
+                varying float vAlpha;
+                uniform float time;
+                uniform float layer;
+                
+                void main() {
+                  vec2 coord = gl_PointCoord - vec2(0.5);
+                  float distance = length(coord);
+                  
+                  // Soft gaussian falloff for cloud-like appearance
+                  float strength = exp(-distance * distance * 4.0);
+                  
+                  // Add some noise for texture
+                  float noise = sin(gl_PointCoord.x * 10.0 + time * 0.5) * 
+                               sin(gl_PointCoord.y * 10.0 - time * 0.3) * 0.1;
+                  
+                  strength += noise;
+                  
+                  // Bright core, darker edges (like JWST images)
+                  vec3 finalColor = vColor * (1.0 + strength * 2.0);
+                  
+                  gl_FragColor = vec4(finalColor, vAlpha * strength);
+                }
+              `,
+              transparent: true,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false,
+              vertexColors: true
+            });
+            
+            const particles = new THREE.Points(geometry, material);
+            particles.rotation.set(
+              Math.random() * 0.2,
+              layer * 0.1,
+              Math.random() * 0.2
+            );
+            nebulaGroup.add(particles);
+          }
+          
+          // Add bright stars with diffraction spikes (JWST signature)
+          const starCount = mobile ? 5 : 15;
+          for (let i = 0; i < starCount; i++) {
+            const starGeometry = new THREE.SphereGeometry(5, 8, 8);
+            const starMaterial = new THREE.MeshBasicMaterial({
+              color: new THREE.Color(1.2, 1.2, 1.4),
+              emissive: new THREE.Color(1, 1, 1),
+              emissiveIntensity: 2
+            });
+            
+            const star = new THREE.Mesh(starGeometry, starMaterial);
+            star.position.set(
+              (Math.random() - 0.5) * baseSize * 2,
+              (Math.random() - 0.5) * baseSize,
+              (Math.random() - 0.5) * baseSize * 2
+            );
+            
+            // Add glow
+            const glowGeometry = new THREE.SphereGeometry(20, 8, 8);
+            const glowMaterial = new THREE.ShaderMaterial({
+              uniforms: {
+                time: { value: 0 }
+              },
+              vertexShader: `
+                varying vec3 vNormal;
+                void main() {
+                  vNormal = normalize(normalMatrix * normal);
+                  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+              `,
+              fragmentShader: `
+                varying vec3 vNormal;
+                uniform float time;
+                void main() {
+                  float intensity = pow(0.8 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 3.0);
+                  vec3 color = vec3(1.0, 0.95, 0.8) * intensity * 2.0;
+                  gl_FragColor = vec4(color, intensity * 0.6);
+                }
+              `,
+              transparent: true,
+              blending: THREE.AdditiveBlending,
+              side: THREE.BackSide,
+              depthWrite: false
+            });
+            
+            const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+            star.add(glow);
+            
+            // Add diffraction spikes (JWST signature feature)
+            const spikeGeometry = new THREE.PlaneGeometry(100, 2);
+            const spikeMaterial = new THREE.MeshBasicMaterial({
+              color: 0xffffff,
+              transparent: true,
+              opacity: 0.5,
+              blending: THREE.AdditiveBlending,
+              side: THREE.DoubleSide,
+              depthWrite: false
+            });
+            
+            // Create 6 spikes like JWST
+            for (let j = 0; j < 6; j++) {
+              const spike = new THREE.Mesh(spikeGeometry, spikeMaterial);
+              spike.rotation.z = (j / 6) * Math.PI;
+              star.add(spike);
+            }
+            
+            nebulaGroup.add(star);
+          }
+          
+          nebulaGroup.position.set(
             nebula.ra ? (nebula.ra - 180) * 100 : (Math.random() - 0.5) * 20000,
             (Math.random() - 0.5) * 10000,
             nebula.dec ? nebula.dec * 100 : (Math.random() - 0.5) * 20000
           );
           
-          return nebulaMesh;
+          nebulaGroup.userData = { layers: layerCount };
+          
+          return nebulaGroup;
         };
         
         const nebulaCount = mobile ? 5 : 20;
@@ -537,11 +1165,27 @@ const UniverseSimulationParallel = () => {
             positions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
             positions[i3 + 2] = radius * Math.cos(phi);
             
-            // Subtle color variations
-            const brightness = 0.3 + Math.random() * 0.7;
-            colors[i3] = brightness * (0.8 + Math.random() * 0.2);
-            colors[i3 + 1] = brightness * (0.8 + Math.random() * 0.2);
-            colors[i3 + 2] = brightness * (0.9 + Math.random() * 0.1);
+            // More colorful dust with nebula-like colors
+            const colorType = Math.random();
+            let dustColor;
+            if (colorType < 0.3) {
+              // Blue/cyan dust
+              dustColor = { r: 0.3, g: 0.6, b: 1.0 };
+            } else if (colorType < 0.6) {
+              // Pink/magenta dust
+              dustColor = { r: 1.0, g: 0.3, b: 0.6 };
+            } else if (colorType < 0.8) {
+              // Golden dust
+              dustColor = { r: 1.0, g: 0.8, b: 0.4 };
+            } else {
+              // Green/teal dust
+              dustColor = { r: 0.3, g: 1.0, b: 0.7 };
+            }
+            
+            const brightness = 0.5 + Math.random() * 0.5;
+            colors[i3] = dustColor.r * brightness;
+            colors[i3 + 1] = dustColor.g * brightness;
+            colors[i3 + 2] = dustColor.b * brightness;
             
             // Varied sizes for depth
             sizes[i] = Math.random() * 3 + 0.5;
@@ -647,9 +1291,9 @@ const UniverseSimulationParallel = () => {
             const cloudMaterial = new THREE.ShaderMaterial({
               uniforms: {
                 time: { value: 0 },
-                opacity: { value: 0.1 + Math.random() * 0.1 },
-                color1: { value: new THREE.Color(0x1a0033) },
-                color2: { value: new THREE.Color(0x330066) },
+                opacity: { value: 0.2 + Math.random() * 0.2 },
+                color1: { value: new THREE.Color(0xff0080).multiplyScalar(Math.random() + 0.5) }, // Pink/magenta
+                color2: { value: new THREE.Color(0x0080ff).multiplyScalar(Math.random() + 0.5) }, // Cyan/blue
                 scale: { value: 1 + Math.random() }
               },
               vertexShader: `
@@ -790,7 +1434,6 @@ const UniverseSimulationParallel = () => {
         }
         
         // ========== CONTROLS ==========
-        let mouseX = 0, mouseY = 0;
         let isMouseDown = false;
         let touchStartX = 0, touchStartY = 0;
         let pinchStartDistance = 0;
@@ -820,8 +1463,10 @@ const UniverseSimulationParallel = () => {
               const deltaX = e.touches[0].clientX - touchStartX;
               const deltaY = e.touches[0].clientY - touchStartY;
               
-              mouseX = deltaX * 0.01;
-              mouseY = deltaY * 0.01;
+              // Direct camera rotation for immediate response
+              camera.rotation.y -= deltaX * 0.01;
+              camera.rotation.x -= deltaY * 0.01;
+              camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
               
               touchStartX = e.touches[0].clientX;
               touchStartY = e.touches[0].clientY;
@@ -842,8 +1487,6 @@ const UniverseSimulationParallel = () => {
           
           renderer.domElement.addEventListener('touchend', () => {
             isMouseDown = false;
-            mouseX = 0;
-            mouseY = 0;
           });
         } else {
           // Desktop controls - initialize keys object
@@ -867,11 +1510,6 @@ const UniverseSimulationParallel = () => {
           // Pointer lock change handler
           document.addEventListener('pointerlockchange', () => {
             isPointerLocked = document.pointerLockElement === renderer.domElement;
-            if (!isPointerLocked) {
-              // Reset any ongoing movement when pointer lock is released
-              mouseX = 0;
-              mouseY = 0;
-            }
           });
           
           // Mouse movement (only when pointer locked)
@@ -944,9 +1582,29 @@ const UniverseSimulationParallel = () => {
           // Update planets
           planets.forEach((planet, index) => {
             planet.angle += deltaTime * planet.speed * 0.0001;
-            planet.mesh.position.x = Math.cos(planet.angle) * planet.distance;
-            planet.mesh.position.z = Math.sin(planet.angle) * planet.distance;
+            planet.group.position.x = Math.cos(planet.angle) * planet.distance;
+            planet.group.position.z = Math.sin(planet.angle) * planet.distance;
             planet.mesh.rotation.y += deltaTime * 0.5;
+            
+            // Update moons
+            planet.moons.forEach((moon) => {
+              if (moon.userData.distance) {
+                moon.userData.angle = (moon.userData.angle || 0) + deltaTime * moon.userData.speed * 0.01;
+                moon.position.x = Math.cos(moon.userData.angle) * moon.userData.distance;
+                moon.position.z = Math.sin(moon.userData.angle) * moon.userData.distance;
+                moon.rotation.y += deltaTime * 0.3;
+              }
+            });
+            
+            // Update shader uniforms for hyperrealistic planets
+            if (planet.mesh.material && planet.mesh.material.uniforms) {
+              if (planet.mesh.material.uniforms.sunPosition) {
+                planet.mesh.material.uniforms.sunPosition.value.copy(sunGroup.position);
+              }
+              if (planet.mesh.material.uniforms.time) {
+                planet.mesh.material.uniforms.time.value = time;
+              }
+            }
             
             // Update planet trails
             if (planetTrails && planetTrails.children[index]) {
@@ -962,9 +1620,9 @@ const UniverseSimulationParallel = () => {
               }
               
               // Add new position at front
-              positions[0] = planet.mesh.position.x;
-              positions[1] = planet.mesh.position.y;
-              positions[2] = planet.mesh.position.z;
+              positions[0] = planet.group.position.x;
+              positions[1] = planet.group.position.y;
+              positions[2] = planet.group.position.z;
               
               trail.geometry.attributes.position.needsUpdate = true;
             }
@@ -980,6 +1638,12 @@ const UniverseSimulationParallel = () => {
               if (object.name === 'cosmicDust' && object.material.uniforms.cameraPos) {
                 object.material.uniforms.cameraPos.value.copy(camera.position);
               }
+            }
+            
+            // Animate nebula layers
+            if (object.parent && object.parent.userData && object.parent.userData.layers) {
+              object.rotation.y += deltaTime * 0.02;
+              object.rotation.x += deltaTime * 0.01;
             }
           });
           
@@ -1037,15 +1701,6 @@ const UniverseSimulationParallel = () => {
             if (keysRef.current['control']) camera.position.addScaledVector(up, -moveDistance);
           }
           
-          // Mobile touch rotation
-          if (mobile && (isMouseDown || mouseX !== 0 || mouseY !== 0)) {
-            camera.rotation.y -= mouseX * deltaTime;
-            camera.rotation.x -= mouseY * deltaTime;
-            camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
-            
-            mouseX *= 0.9;
-            mouseY *= 0.9;
-          }
           
           // Render with Nanite if available
           if (naniteSystemRef.current) {
