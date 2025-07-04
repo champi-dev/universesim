@@ -238,6 +238,7 @@ const UniverseSimulationNASA = () => {
 
     // ========== NASA ASTEROIDS ==========
     const asteroidGroup = new THREE.Group();
+    const asteroids = [];
     preloadedAsteroids.forEach((asteroid) => {
       const geometry = new THREE.IcosahedronGeometry(asteroid.diameter / 100, 0);
       const material = new THREE.MeshLambertMaterial({ 
@@ -246,15 +247,23 @@ const UniverseSimulationNASA = () => {
       });
       const mesh = new THREE.Mesh(geometry, material);
       
-      // Position based on orbital elements
-      const a = asteroid.a * AU_SCALE; // Semi-major axis
-      const angle = Math.random() * Math.PI * 2;
-      mesh.position.x = Math.cos(angle) * a;
-      mesh.position.z = Math.sin(angle) * a;
+      // Store orbital elements for animation
+      mesh.userData = {
+        ...asteroid,
+        angle: Math.random() * Math.PI * 2, // Starting angle
+        a: asteroid.a * AU_SCALE, // Semi-major axis in sim units
+        e: asteroid.e || 0, // Eccentricity
+        orbitalPeriod: asteroid.per || (Math.pow(asteroid.a, 1.5) * 365.25) // Kepler's 3rd law if period not given
+      };
+      
+      // Initial position
+      const r = mesh.userData.a * (1 - mesh.userData.e);
+      mesh.position.x = Math.cos(mesh.userData.angle) * r;
+      mesh.position.z = Math.sin(mesh.userData.angle) * r;
       mesh.position.y = (Math.random() - 0.5) * 10;
       
-      mesh.userData = asteroid;
       asteroidGroup.add(mesh);
+      asteroids.push(mesh);
       spatialGrid.insert(mesh, mesh.position, 'asteroid');
     });
     scene.add(asteroidGroup);
@@ -626,23 +635,79 @@ const UniverseSimulationNASA = () => {
       camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
     });
 
-    // Animation loop
+    // Animation loop with time scaling
     let time = 0;
+    let simulationTime = 0; // Days elapsed in simulation
+    const TIME_SCALE = 1440; // 1 day per minute (60 seconds * 24 hours = 1440)
+    
     const animate = () => {
       requestAnimationFrame(animate);
-      time += 0.016;
+      const deltaTime = 0.016; // ~60fps
+      time += deltaTime;
+      
+      // Update simulation time (1 minute real time = 1 day simulation time)
+      simulationTime += deltaTime * TIME_SCALE / 60; // Convert to days
 
       // Update Sun
       sun.material.uniforms.time.value = time;
       corona.material.uniforms.viewVector.value = camera.position;
-      sunGroup.rotation.y += 0.001;
+      // Sun rotates once every 25 days
+      sunGroup.rotation.y += (deltaTime * TIME_SCALE / 60) * (2 * Math.PI / 25);
 
-      // Update planets
+      // Update planets with accurate orbital periods
       planets.forEach(planet => {
-        planet.userData.angle += planet.userData.speed * 0.01;
+        // Orbital period in Earth days
+        const orbitalPeriods = {
+          "Mercury": 88,
+          "Venus": 225,
+          "Earth": 365.25,
+          "Mars": 687,
+          "Jupiter": 4333,
+          "Saturn": 10759,
+          "Uranus": 30687,
+          "Neptune": 60190
+        };
+        
+        const period = orbitalPeriods[planet.userData.name] || 365.25;
+        const angularVelocity = (2 * Math.PI) / period; // radians per day
+        
+        planet.userData.angle += angularVelocity * (deltaTime * TIME_SCALE / 60);
         planet.position.x = Math.cos(planet.userData.angle) * planet.userData.distance;
         planet.position.z = Math.sin(planet.userData.angle) * planet.userData.distance;
-        planet.rotation.y += 0.01;
+        
+        // Planet rotation (approximate)
+        const rotationPeriods = {
+          "Mercury": 58.6,
+          "Venus": -243, // Negative for retrograde rotation
+          "Earth": 1,
+          "Mars": 1.03,
+          "Jupiter": 0.41,
+          "Saturn": 0.45,
+          "Uranus": -0.72, // Negative for retrograde
+          "Neptune": 0.67
+        };
+        
+        const rotPeriod = rotationPeriods[planet.userData.name] || 1;
+        planet.rotation.y += (deltaTime * TIME_SCALE / 60) * (2 * Math.PI / Math.abs(rotPeriod)) * Math.sign(rotPeriod);
+      });
+
+      // Update asteroids
+      asteroids.forEach(asteroid => {
+        const angularVelocity = (2 * Math.PI) / asteroid.userData.orbitalPeriod;
+        asteroid.userData.angle += angularVelocity * (deltaTime * TIME_SCALE / 60);
+        
+        // Elliptical orbit calculation
+        const a = asteroid.userData.a;
+        const e = asteroid.userData.e;
+        const E = asteroid.userData.angle; // Simplified - using mean anomaly as eccentric anomaly
+        const r = a * (1 - e * Math.cos(E));
+        
+        asteroid.position.x = Math.cos(asteroid.userData.angle) * r;
+        asteroid.position.z = Math.sin(asteroid.userData.angle) * r;
+        
+        // Slow rotation
+        asteroid.rotation.y += 0.01;
+        asteroid.rotation.x += 0.005;
       });
 
       // Update nebulae materials
@@ -695,7 +760,27 @@ const UniverseSimulationNASA = () => {
     };
   }, []);
 
-  return <div ref={mountRef} style={{ width: '100vw', height: '100vh' }} />;
+  return (
+    <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
+      <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
+      <div style={{
+        position: 'absolute',
+        top: '10px',
+        left: '10px',
+        color: 'white',
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        padding: '10px',
+        borderRadius: '5px',
+        pointerEvents: 'none'
+      }}>
+        <div>Time Scale: 1 day = 1 minute</div>
+        <div>Controls: WASD + Mouse (click to lock)</div>
+        <div>Shift: Fast travel | Space/Ctrl: Up/Down</div>
+      </div>
+    </div>
+  );
 };
 
 export default UniverseSimulationNASA;
