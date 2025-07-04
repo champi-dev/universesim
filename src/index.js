@@ -11,5 +11,10 @@ root.render(
   </React.StrictMode>
 );
 
-// Register service worker for PWA functionality
-serviceWorkerRegistration.register();
+// Register service worker for PWA functionality (disabled in development)
+if (process.env.NODE_ENV === 'production') {
+  serviceWorkerRegistration.register();
+} else {
+  // In development, unregister any existing service worker
+  serviceWorkerRegistration.unregister();
+}

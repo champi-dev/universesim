@@ -351,8 +351,9 @@ const UniverseSimulation = () => {
             float r = distance(gl_PointCoord, vec2(0.5));
             if (r > 0.5) discard;
             float intensity = 1.0 - (r * 2.0);
-            intensity = pow(intensity, 2.0);
-            gl_FragColor = vec4(vColor * intensity, intensity * 0.8);
+            intensity = pow(intensity, 3.0); // Softer falloff
+            intensity *= 0.01; // 1% opacity as requested
+            gl_FragColor = vec4(vColor * intensity * 0.01, intensity * 0.0001);
           }
         `,
         blending: THREE.AdditiveBlending,
@@ -476,13 +477,14 @@ const UniverseSimulation = () => {
             
             // Soft, glowing particles
             float intensity = 1.0 - (r * 2.0);
-            intensity = pow(intensity, 1.5);
+            intensity = pow(intensity, 3.0); // Much softer falloff
+            intensity *= 0.01; // 1% opacity
             
             // Add subtle color variations
-            vec3 color = vColor;
-            color += vec3(0.1, 0.05, 0.15) * (1.0 - intensity);
+            vec3 color = vColor * 0.1; // Extremely low saturation
+            color += vec3(0.001, 0.0005, 0.002) * (1.0 - intensity);
             
-            gl_FragColor = vec4(color * intensity, intensity * 0.7);
+            gl_FragColor = vec4(color * intensity * 0.01, intensity * 0.0001);
           }
         `,
         blending: THREE.AdditiveBlending,
@@ -571,10 +573,11 @@ const UniverseSimulation = () => {
             float r = distance(gl_PointCoord, vec2(0.5));
             if (r > 0.5) discard;
             
-            float intensity = 1.0 - (r * 2.0);
-            intensity = pow(intensity, 2.5);
+            float intensity = 1.0 - smoothstep(0.0, 0.5, r); // Smoother gradient
+            intensity = pow(intensity, 4.0); // Very soft edges
+            intensity *= 0.01; // 1% opacity
             
-            gl_FragColor = vec4(vColor * intensity, intensity * 0.3);
+            gl_FragColor = vec4(vColor * intensity * 0.01, intensity * 0.0001);
           }
         `,
         blending: THREE.AdditiveBlending,
@@ -697,41 +700,135 @@ const UniverseSimulation = () => {
       return group;
     };
 
-    // Create JWST-style nebulae
-    const jwstNebulae = [
-      // Pillars of Creation style
-      createJWSTNebula(new THREE.Vector3(500, 100, -300), {
-        size: 250,
-        colors: [
-          new THREE.Color(0x8b4513), // Saddle Brown
-          new THREE.Color(0xcd853f), // Peru
-          new THREE.Color(0xffd700), // Gold
-          new THREE.Color(0x4682b4), // Steel Blue
-        ],
+    // ========== REALISTIC NASA-INSPIRED NEBULAE ==========
+    const createRealisticNebula = (position, config) => {
+      const group = new THREE.Group();
+      
+      // Emission nebula - H-alpha hydrogen clouds
+      const cloudGeometry = new THREE.BufferGeometry();
+      const particleCount = config.particleCount || 8000;
+      const positions = new Float32Array(particleCount * 3);
+      const colors = new Float32Array(particleCount * 3);
+      const sizes = new Float32Array(particleCount);
+      
+      // Realistic nebula structure - filamentary and clumpy
+      for (let i = 0; i < particleCount; i++) {
+        const i3 = i * 3;
+        
+        // Create filamentary structure
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const r = Math.random() * config.size;
+        
+        // Add turbulence for realistic cloud structure
+        const turbulence = Math.sin(theta * 4) * Math.cos(phi * 3) * config.size * 0.3;
+        const clumpiness = Math.sin(r * 0.05) * config.size * 0.2;
+        
+        positions[i3] = r * Math.sin(phi) * Math.cos(theta) + turbulence;
+        positions[i3 + 1] = r * Math.sin(phi) * Math.sin(theta) + clumpiness;
+        positions[i3 + 2] = r * Math.cos(phi) + turbulence * 0.5;
+        
+        // Realistic nebula colors based on emission lines
+        const zone = Math.random();
+        let color;
+        if (zone < 0.7) {
+          // H-alpha emission (red) - most common
+          color = new THREE.Color(0.2, 0.05, 0.05); // Very dark red
+        } else if (zone < 0.9) {
+          // OIII emission (blue-green)
+          color = new THREE.Color(0.05, 0.1, 0.15); // Very dark cyan
+        } else {
+          // Dust lanes (dark)
+          color = new THREE.Color(0.02, 0.02, 0.02); // Almost black
+        }
+        
+        const brightness = Math.random() * 0.3 + 0.1; // Very dim
+        colors[i3] = color.r * brightness;
+        colors[i3 + 1] = color.g * brightness;
+        colors[i3 + 2] = color.b * brightness;
+        
+        // Varying particle sizes for depth
+        sizes[i] = Math.random() * 20 + 10;
+      }
+      
+      cloudGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      cloudGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      cloudGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+      
+      const cloudMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+          time: { value: 0 }
+        },
+        vertexShader: `
+          attribute float size;
+          varying vec3 vColor;
+          uniform float time;
+          
+          void main() {
+            vColor = color;
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            
+            // Very subtle animation
+            vec3 pos = position;
+            pos += sin(time * 0.1 + position.x * 0.001) * 0.5;
+            
+            gl_PointSize = size * (300.0 / -mvPosition.z);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+          }
+        `,
+        fragmentShader: `
+          varying vec3 vColor;
+          
+          void main() {
+            float r = distance(gl_PointCoord, vec2(0.5));
+            if (r > 0.5) discard;
+            
+            // Very soft, gaussian-like falloff
+            float intensity = exp(-4.0 * r * r);
+            
+            // Extremely low opacity for realism
+            gl_FragColor = vec4(vColor * intensity, intensity * 0.003);
+          }
+        `,
+        blending: THREE.AdditiveBlending,
+        transparent: true,
+        vertexColors: true,
+        depthWrite: false
+      });
+      
+      const cloud = new THREE.Points(cloudGeometry, cloudMaterial);
+      group.add(cloud);
+      
+      group.userData = { material: cloudMaterial };
+      group.position.copy(position);
+      return group;
+    };
+    
+    // Create realistic nebulae based on actual NASA catalog
+    const realisticNebulae = [
+      // Eagle Nebula (M16) - Pillars of Creation region
+      createRealisticNebula(new THREE.Vector3(7000, 500, 1000), {
+        size: 400,
+        particleCount: 10000
       }),
-      // Carina Nebula style
-      createJWSTNebula(new THREE.Vector3(-600, -100, 400), {
-        size: 350,
-        colors: [
-          new THREE.Color(0xff1493), // Deep Pink
-          new THREE.Color(0xff6347), // Tomato
-          new THREE.Color(0xffd700), // Gold
-          new THREE.Color(0x00ced1), // Dark Turquoise
-        ],
-      }),
-      // Supernova remnant style
-      createJWSTNebula(new THREE.Vector3(200, -200, 600), {
+      // Orion Nebula (M42) - Star forming region
+      createRealisticNebula(new THREE.Vector3(1344, 0, 0), {
         size: 300,
-        colors: [
-          new THREE.Color(0x00bfff), // Deep Sky Blue
-          new THREE.Color(0x32cd32), // Lime Green
-          new THREE.Color(0xff69b4), // Hot Pink
-          new THREE.Color(0x9370db), // Medium Purple
-        ],
+        particleCount: 8000
       }),
+      // Crab Nebula (M1) - Supernova remnant
+      createRealisticNebula(new THREE.Vector3(6523, -200, 500), {
+        size: 200,
+        particleCount: 6000
+      })
     ];
-
-    jwstNebulae.forEach((nebula) => scene.add(nebula));
+    
+    // Store nebulae for animation updates
+    const realisticNebulaeList = [];
+    realisticNebulae.forEach(nebula => {
+      scene.add(nebula);
+      realisticNebulaeList.push(nebula);
+    });
 
     // ========== LIGHTNING EFFECTS ==========
     const lightningBolts = [];
@@ -995,8 +1092,8 @@ const UniverseSimulation = () => {
       {
         name: "Orion Nebula",
         pos: new THREE.Vector3(1344, 0, 0),
-        color1: 0xff0080,
-        color2: 0x0080ff,
+        color1: 0x442233,
+        color2: 0x223344,
         size: 200,
       },
       {
@@ -1016,8 +1113,8 @@ const UniverseSimulation = () => {
       {
         name: "Helix Nebula",
         pos: new THREE.Vector3(700, 100, -300),
-        color1: 0x00ffff,
-        color2: 0xff00ff,
+        color1: 0x224444,
+        color2: 0x443344,
         size: 180,
       },
       {
@@ -1029,15 +1126,16 @@ const UniverseSimulation = () => {
       },
     ];
 
-    realNebulae.forEach((neb) => {
-      const nebula = createNebula(
-        neb.pos,
-        new THREE.Color(neb.color1),
-        new THREE.Color(neb.color2),
-        neb.size
-      );
-      scene.add(nebula);
-    });
+    // Real nebulae also removed for cleaner appearance
+    // realNebulae.forEach((neb) => {
+    //   const nebula = createNebula(
+    //     neb.pos,
+    //     new THREE.Color(neb.color1),
+    //     new THREE.Color(neb.color2),
+    //     neb.size
+    //   );
+    //   scene.add(nebula);
+    // });
 
     // Known galaxies
     const knownGalaxies = [
@@ -1347,17 +1445,38 @@ const UniverseSimulation = () => {
       // Adjust star sizes based on distance
       starsMaterial.uniforms.scale.value = Math.min(5, distance / 1000);
 
-      // Hide/show elements based on scale
+      // LOD system - scale objects based on distance, never hide
       planets.forEach((planet) => {
-        planet.visible = distance < 10000;
+        if (distance > 10000) {
+          // Show as dot when far
+          planet.scale.setScalar(Math.max(0.1, 10000 / distance));
+        } else {
+          // Normal size when close
+          planet.scale.setScalar(1);
+        }
       });
 
-      asteroids.visible = distance < 5000;
-      comet.visible = distance < 5000;
-      milkyWay.visible = distance > 1000;
+      // Scale asteroids and comet
+      if (distance > 5000) {
+        asteroids.material.size = Math.max(0.5, 5000 / distance * 2);
+        comet.scale.setScalar(Math.max(0.1, 5000 / distance));
+      } else {
+        asteroids.material.size = 2;
+        comet.scale.setScalar(1);
+      }
+      
+      // Always visible, just adjust opacity
+      milkyWay.material.opacity = Math.min(0.6, Math.max(0.1, (distance - 1000) / 10000));
 
+      // Scale galaxies based on distance
       galaxies.forEach((galaxy) => {
-        galaxy.visible = distance > 10000;
+        if (distance < 10000) {
+          // Show as tiny dots when close
+          galaxy.scale.setScalar(0.1);
+        } else {
+          // Normal size when far
+          galaxy.scale.setScalar(1);
+        }
       });
     };
 
@@ -1675,19 +1794,14 @@ const UniverseSimulation = () => {
         .normalize();
       comet.lookAt(comet.position.clone().sub(cometToSun));
 
-      // Update JWST nebulae
-      jwstNebulae.forEach((nebula) => {
-        if (nebula.userData) {
-          nebula.userData.coreMaterial.uniforms.time.value = time;
-          nebula.userData.wispsMaterial.uniforms.time.value = time;
-          nebula.userData.starsMaterial.uniforms.time.value = time;
-
-          // Adjust detail based on distance
-          const dist = camera.position.distanceTo(nebula.position);
-          const scale = Math.max(0.5, Math.min(2.0, 1000 / dist));
-          nebula.userData.coreMaterial.uniforms.scale.value = scale;
-        }
-      });
+      // Update realistic nebulae
+      if (realisticNebulaeList) {
+        realisticNebulaeList.forEach((nebula) => {
+          if (nebula.userData && nebula.userData.material) {
+            nebula.userData.material.uniforms.time.value = time;
+          }
+        });
+      }
 
       // Lightning effects
       if (Math.random() < 0.02) {

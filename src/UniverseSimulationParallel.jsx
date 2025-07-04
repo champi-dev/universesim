@@ -1,7 +1,7 @@
 import React, { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import { ParallelNaniteSystem, createParallelNanitePlanet, createParallelNaniteGalaxy } from "./NaniteSystemParallel";
-import { preloadedAsteroids, preloadedNebulae } from "./data/preloadedData";
+import { preloadedAsteroids } from "./data/preloadedData";
 import { STAR_COLORS, NEBULA_COLORS } from "./data/astronomicalColors";
 
 // Constants
@@ -919,6 +919,7 @@ const UniverseSimulationParallel = () => {
         const nebulaGroup = new THREE.Group();
         nebulaGroup.name = 'nebulae';
         
+        // eslint-disable-next-line no-unused-vars
         const createNebula = (nebula, index) => {
           const nebulaGroup = new THREE.Group();
           
@@ -937,7 +938,7 @@ const UniverseSimulationParallel = () => {
             const layerOpacity = 0.15 - layer * 0.02; // Much less opacity
             
             // Create volumetric cloud particles for each layer
-            const particleCount = mobile ? 1000 : 3000;
+            const particleCount = mobile ? 100 : 300; // Much fewer particles for subtle effect
             const geometry = new THREE.BufferGeometry();
             const positions = new Float32Array(particleCount * 3);
             const colors = new Float32Array(particleCount * 3);
@@ -1028,7 +1029,7 @@ const UniverseSimulationParallel = () => {
                   // Bright core, darker edges (like JWST images)
                   vec3 finalColor = vColor * (1.0 + strength * 2.0);
                   
-                  gl_FragColor = vec4(finalColor, vAlpha * strength * 0.3); // Reduced opacity
+                  gl_FragColor = vec4(finalColor, vAlpha * strength * 0.005); // 0.5% opacity - almost invisible
                 }
               `,
               transparent: true,
@@ -1125,12 +1126,13 @@ const UniverseSimulationParallel = () => {
           return nebulaGroup;
         };
         
-        const nebulaCount = mobile ? 5 : 20;
-        preloadedNebulae.slice(0, nebulaCount).forEach((nebula, i) => {
-          nebulaGroup.add(createNebula(nebula, i));
-        });
+        // NEBULAE DISABLED - they look unrealistic as bright spheres
+        // const nebulaCount = mobile ? 2 : 5; // Fewer nebulae
+        // preloadedNebulae.slice(0, nebulaCount).forEach((nebula, i) => {
+        //   nebulaGroup.add(createNebula(nebula, i));
+        // });
         
-        scene.add(nebulaGroup);
+        // scene.add(nebulaGroup);
         
         // ========== COSMIC DUST PARTICLES ==========
         const createCosmicDust = () => {
@@ -1267,6 +1269,7 @@ const UniverseSimulationParallel = () => {
         const cosmicDust = createCosmicDust();
         
         // ========== VOLUMETRIC GAS CLOUDS ==========
+        // eslint-disable-next-line no-unused-vars
         const createGasClouds = () => {
           const cloudGroup = new THREE.Group();
           cloudGroup.name = 'gasClouds';
@@ -1350,11 +1353,12 @@ const UniverseSimulationParallel = () => {
             cloudGroup.add(cloud);
           }
           
-          scene.add(cloudGroup);
+          // scene.add(cloudGroup); // DISABLED
           return cloudGroup;
         };
         
-        const gasClouds = createGasClouds();
+        // GAS CLOUDS DISABLED - unrealistic bright pink/cyan spheres
+        // const gasClouds = createGasClouds();
         
         // ========== PARTICLE TRAILS FOR PLANETS ==========
         const createPlanetTrails = () => {
@@ -1493,7 +1497,7 @@ const UniverseSimulationParallel = () => {
               const deltaY = e.touches[0].clientY - touchStartY;
               
               // Update pitch and yaw for full 360-degree rotation
-              yaw += deltaX * 0.01;  // Fixed: was inverted
+              yaw -= deltaX * 0.01;  // Inverted to match user expectation
               pitch -= deltaY * 0.01;
               
               // No limits - allow full 360-degree rotation
@@ -1558,7 +1562,7 @@ const UniverseSimulationParallel = () => {
             if (!isPointerLocked) return;
             
             // Add to rotation velocity for smooth movement
-            rotationVelocity.x = e.movementX * 0.005;
+            rotationVelocity.x = -e.movementX * 0.005; // Inverted for natural feel
             rotationVelocity.y = e.movementY * 0.005;
           });
           
@@ -1840,7 +1844,7 @@ const UniverseSimulationParallel = () => {
           if (cameraDistance > 10000) {
             // Fade out particle effects when very far
             if (cosmicDust) fadeObject(cosmicDust, 0, deltaTime, 3);
-            if (gasClouds) fadeObject(gasClouds, 0, deltaTime, 3);
+            // if (gasClouds) fadeObject(gasClouds, 0, deltaTime, 3); // DISABLED
             
             // Fade nebulae when extremely far
             if (nebulaGroup) {
@@ -1872,10 +1876,10 @@ const UniverseSimulationParallel = () => {
               const shouldBeVisible = cameraSpeed < 1000 && cameraDistance < 5000;
               fadeObject(cosmicDust, shouldBeVisible ? 1 : 0, deltaTime, 3);
             }
-            if (gasClouds) {
-              const shouldBeVisible = cameraSpeed < 5000 && cameraDistance < 8000;
-              fadeObject(gasClouds, shouldBeVisible ? 1 : 0, deltaTime, 3);
-            }
+            // if (gasClouds) {
+            //   const shouldBeVisible = cameraSpeed < 5000 && cameraDistance < 8000;
+            //   fadeObject(gasClouds, shouldBeVisible ? 1 : 0, deltaTime, 3);
+            // } // DISABLED
             if (nebulaGroup) {
               fadeGroup(nebulaGroup, true, deltaTime, 1);
             }
