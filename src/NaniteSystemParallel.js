@@ -110,7 +110,7 @@ export class ParallelNaniteSystem {
         }
       }
       
-      console.log(`Initialized ${this.workers.length} Nanite workers`);
+      // Initialized Nanite workers
     } catch (error) {
       console.error('Failed to initialize workers:', error);
       this.workerCount = 0;
@@ -274,8 +274,7 @@ export class ParallelNaniteSystem {
     });
     
     this.stats.totalClusters = this.clusters.size;
-    const elapsed = performance.now() - startTime;
-    console.log(`LOD hierarchy created in ${elapsed.toFixed(2)}ms`);
+    // LOD hierarchy created in ${performance.now() - startTime}ms
     
     return rootCluster;
   }
@@ -441,7 +440,7 @@ export class ParallelNaniteSystem {
   processSimplifiedGeometry(result) {
     // This method is called when geometry simplification is complete
     // The result is already processed in simplifyGeometryAsync
-    console.log('Geometry simplified with', result.indices.length / 3, 'triangles');
+    // Geometry simplified
   }
 
   /**

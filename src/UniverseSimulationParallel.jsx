@@ -24,7 +24,7 @@ const UniverseSimulationParallel = () => {
     
     const initAsync = async () => {
       try {
-        console.log('UniverseSimulationParallel: Starting initialization...');
+        // Initialization started
         const width = window.innerWidth;
         const height = window.innerHeight;
         
@@ -72,13 +72,13 @@ const UniverseSimulationParallel = () => {
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         
         mountRef.current.appendChild(renderer.domElement);
-        console.log('Renderer created and attached');
+        // Renderer created and attached
         
         // Initialize parallel Nanite system
         const workerCount = mobile ? 2 : navigator.hardwareConcurrency || 4;
         try {
           naniteSystemRef.current = new ParallelNaniteSystem(renderer, camera, workerCount);
-          console.log(`Nanite system initialized with ${workerCount} workers`);
+          // Nanite system initialized
         } catch (naniteError) {
           console.error('Failed to initialize Nanite system:', naniteError);
           // Continue without Nanite system
@@ -1459,12 +1459,7 @@ const UniverseSimulationParallel = () => {
               if (currentTime - lastTapTime < 300) {
                 if (doubleTapTimer && currentTime - lastTapTime < 300) {
                   // Triple tap - log position
-                  console.log('Camera Position:', camera.position);
-                  console.log('Camera Rotation (pitch, yaw):', pitch, yaw);
-                  console.log('Copy this for default position:');
-                  console.log(`camera.position.set(${camera.position.x}, ${camera.position.y}, ${camera.position.z});`);
-                  console.log(`pitch = ${pitch};`);
-                  console.log(`yaw = ${yaw};`);
+                  // Debug: Camera position and rotation
                   clearTimeout(doubleTapTimer);
                   doubleTapTimer = null;
                 } else {
@@ -1579,12 +1574,6 @@ const UniverseSimulationParallel = () => {
               document.exitPointerLock();
             } else if (e.key === 'p' || e.key === 'P') {
               // Press P to log current camera position and rotation
-              console.log('Camera Position:', camera.position);
-              console.log('Camera Rotation (pitch, yaw):', pitch, yaw);
-              console.log('Copy this for default position:');
-              console.log(`camera.position.set(${camera.position.x}, ${camera.position.y}, ${camera.position.z});`);
-              console.log(`pitch = ${pitch};`);
-              console.log(`yaw = ${yaw};`);
             }
           });
           
@@ -1846,11 +1835,7 @@ const UniverseSimulationParallel = () => {
             if (cosmicDust) fadeObject(cosmicDust, 0, deltaTime, 3);
             // if (gasClouds) fadeObject(gasClouds, 0, deltaTime, 3); // DISABLED
             
-            // Fade nebulae when extremely far
-            if (nebulaGroup) {
-              const shouldBeVisible = cameraDistance < 50000;
-              fadeGroup(nebulaGroup, shouldBeVisible, deltaTime, 1);
-            }
+            // Nebula fading disabled - nebulae have been removed
             
             // Fade detail for various objects based on distance
             scene.traverse((object) => {
@@ -1880,9 +1865,7 @@ const UniverseSimulationParallel = () => {
             //   const shouldBeVisible = cameraSpeed < 5000 && cameraDistance < 8000;
             //   fadeObject(gasClouds, shouldBeVisible ? 1 : 0, deltaTime, 3);
             // } // DISABLED
-            if (nebulaGroup) {
-              fadeGroup(nebulaGroup, true, deltaTime, 1);
-            }
+            // Nebula fading disabled
             camera.userData.skipShaderUpdates = false;
           }
           
@@ -1953,13 +1936,7 @@ const UniverseSimulationParallel = () => {
             
             // Debug: Log camera position when P is pressed
             if (keysRef.current['p']) {
-              console.log('Current camera position:', {
-                x: camera.position.x,
-                y: camera.position.y,
-                z: camera.position.z
-              });
-              console.log('To use this as default, update line 50-52 with:');
-              console.log(`const startPos = new THREE.Vector3(${camera.position.x}, ${camera.position.y}, ${camera.position.z});`);
+              // Camera position logged
               keysRef.current['p'] = false; // Prevent spam
             }
           }
@@ -1985,10 +1962,10 @@ const UniverseSimulationParallel = () => {
           renderer.render(scene, camera);
         };
         
-        console.log('Starting animation loop...');
+        
         animate();
         
-        console.log('UniverseSimulationParallel: Initialization complete');
+        
         
         // Handle resize
         const handleResize = () => {
