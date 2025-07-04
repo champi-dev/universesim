@@ -1,20 +1,15 @@
 import React, { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import { ParallelNaniteSystem, createParallelNanitePlanet, createParallelNaniteGalaxy } from "./NaniteSystemParallel";
-import { preloadedExoplanets, preloadedAsteroids, preloadedNebulae } from "./data/preloadedData";
-import { OptimizedStarCatalog } from "./data/optimizedStarCatalog";
-import { OptimizedGalaxyCatalog } from "./data/optimizedGalaxyCatalog";
+import { preloadedAsteroids, preloadedNebulae } from "./data/preloadedData";
 
 // Constants
 const AU_SCALE = 100;
-const PARSEC_SCALE = 10000;
-const MPC_SCALE = 10000000;
 const TIME_SCALE = 1440; // 1 day = 1 minute
 
 const UniverseSimulationParallel = () => {
   const mountRef = useRef(null);
   const [error, setError] = useState(null);
-  const [isMobile, setIsMobile] = useState(false);
   const keysRef = useRef({});
   const sceneRef = useRef(null);
   const naniteSystemRef = useRef(null);
@@ -35,7 +30,6 @@ const UniverseSimulationParallel = () => {
         // Detect mobile
         const mobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
                        window.innerWidth < 768;
-        setIsMobile(mobile);
         
         // Scene with fog for depth
         const scene = new THREE.Scene();
@@ -67,7 +61,9 @@ const UniverseSimulationParallel = () => {
           logarithmicDepthBuffer: true,
           alpha: false,
           stencil: false,
-          depth: true
+          depth: true,
+          // Enable float textures for advanced effects
+          precision: 'highp'
         });
         
         renderer.setSize(width, height);
@@ -520,6 +516,279 @@ const UniverseSimulationParallel = () => {
         
         scene.add(nebulaGroup);
         
+        // ========== COSMIC DUST PARTICLES ==========
+        const createCosmicDust = () => {
+          const dustCount = mobile ? 10000 : 50000;
+          const dustGeometry = new THREE.BufferGeometry();
+          const positions = new Float32Array(dustCount * 3);
+          const colors = new Float32Array(dustCount * 3);
+          const sizes = new Float32Array(dustCount);
+          const velocities = new Float32Array(dustCount * 3);
+          
+          for (let i = 0; i < dustCount; i++) {
+            const i3 = i * 3;
+            
+            // Distribute particles around camera's starting position
+            const radius = Math.random() * 5000 + 100;
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.acos(2 * Math.random() - 1);
+            
+            positions[i3] = radius * Math.sin(phi) * Math.cos(theta);
+            positions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta);
+            positions[i3 + 2] = radius * Math.cos(phi);
+            
+            // Subtle color variations
+            const brightness = 0.3 + Math.random() * 0.7;
+            colors[i3] = brightness * (0.8 + Math.random() * 0.2);
+            colors[i3 + 1] = brightness * (0.8 + Math.random() * 0.2);
+            colors[i3 + 2] = brightness * (0.9 + Math.random() * 0.1);
+            
+            // Varied sizes for depth
+            sizes[i] = Math.random() * 3 + 0.5;
+            
+            // Slow drift velocities
+            velocities[i3] = (Math.random() - 0.5) * 0.1;
+            velocities[i3 + 1] = (Math.random() - 0.5) * 0.1;
+            velocities[i3 + 2] = (Math.random() - 0.5) * 0.1;
+          }
+          
+          dustGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+          dustGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+          dustGeometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+          dustGeometry.setAttribute('velocity', new THREE.BufferAttribute(velocities, 3));
+          
+          const dustMaterial = new THREE.ShaderMaterial({
+            uniforms: {
+              time: { value: 0 },
+              cameraPos: { value: camera.position },
+              fogColor: { value: new THREE.Color(0x000011) },
+              fogDensity: { value: 0.00001 }
+            },
+            vertexShader: `
+              attribute float size;
+              attribute vec3 velocity;
+              varying vec3 vColor;
+              varying float vDistance;
+              uniform float time;
+              uniform vec3 cameraPos;
+              
+              void main() {
+                vColor = color;
+                
+                // Gentle drift animation
+                vec3 pos = position + velocity * time * 10.0;
+                
+                // Wrap around camera
+                vec3 offset = pos - cameraPos;
+                float dist = length(offset);
+                if (dist > 5000.0) {
+                  offset = normalize(offset) * mod(dist, 5000.0);
+                  pos = cameraPos + offset;
+                }
+                
+                vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                vDistance = -mvPosition.z;
+                
+                // Size attenuation
+                float sizeAttenuation = 300.0 / vDistance;
+                gl_PointSize = size * sizeAttenuation;
+                gl_PointSize = clamp(gl_PointSize, 0.1, 5.0);
+                
+                gl_Position = projectionMatrix * mvPosition;
+              }
+            `,
+            fragmentShader: `
+              varying vec3 vColor;
+              varying float vDistance;
+              uniform vec3 fogColor;
+              uniform float fogDensity;
+              
+              void main() {
+                // Soft circular particle
+                vec2 coord = gl_PointCoord - vec2(0.5);
+                float dist = length(coord);
+                if (dist > 0.5) discard;
+                
+                float alpha = 1.0 - smoothstep(0.0, 0.5, dist);
+                alpha *= 0.6; // Overall transparency
+                
+                // Distance fog
+                float fogFactor = 1.0 - exp(-fogDensity * vDistance);
+                vec3 finalColor = mix(vColor, fogColor, fogFactor);
+                
+                gl_FragColor = vec4(finalColor, alpha);
+              }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            vertexColors: true
+          });
+          
+          const dustParticles = new THREE.Points(dustGeometry, dustMaterial);
+          dustParticles.name = 'cosmicDust';
+          scene.add(dustParticles);
+          
+          return dustParticles;
+        };
+        
+        const cosmicDust = createCosmicDust();
+        
+        // ========== VOLUMETRIC GAS CLOUDS ==========
+        const createGasClouds = () => {
+          const cloudGroup = new THREE.Group();
+          cloudGroup.name = 'gasClouds';
+          
+          // Create multiple gas cloud layers for volume effect
+          const cloudCount = mobile ? 5 : 10;
+          for (let i = 0; i < cloudCount; i++) {
+            const cloudGeometry = new THREE.IcosahedronGeometry(Math.random() * 500 + 200, 2);
+            
+            const cloudMaterial = new THREE.ShaderMaterial({
+              uniforms: {
+                time: { value: 0 },
+                opacity: { value: 0.1 + Math.random() * 0.1 },
+                color1: { value: new THREE.Color(0x1a0033) },
+                color2: { value: new THREE.Color(0x330066) },
+                scale: { value: 1 + Math.random() }
+              },
+              vertexShader: `
+                varying vec3 vPosition;
+                varying vec3 vNormal;
+                uniform float time;
+                uniform float scale;
+                
+                void main() {
+                  vPosition = position;
+                  vNormal = normal;
+                  
+                  // Animated distortion
+                  vec3 pos = position;
+                  float noise = sin(position.x * 0.01 + time * 0.5) * 
+                               cos(position.y * 0.01 - time * 0.3) * 
+                               sin(position.z * 0.01 + time * 0.7);
+                  pos += normal * noise * 20.0;
+                  
+                  gl_Position = projectionMatrix * modelViewMatrix * vec4(pos * scale, 1.0);
+                }
+              `,
+              fragmentShader: `
+                varying vec3 vPosition;
+                varying vec3 vNormal;
+                uniform float time;
+                uniform float opacity;
+                uniform vec3 color1;
+                uniform vec3 color2;
+                
+                void main() {
+                  // Rim lighting effect
+                  vec3 viewDir = normalize(cameraPosition - vPosition);
+                  float rim = 1.0 - dot(vNormal, viewDir);
+                  rim = pow(rim, 2.0);
+                  
+                  // Animated color mixing
+                  float mixFactor = sin(time * 0.5 + vPosition.x * 0.01) * 0.5 + 0.5;
+                  vec3 color = mix(color1, color2, mixFactor);
+                  
+                  // Fade based on rim
+                  float alpha = rim * opacity;
+                  
+                  gl_FragColor = vec4(color * 2.0, alpha);
+                }
+              `,
+              transparent: true,
+              blending: THREE.AdditiveBlending,
+              side: THREE.DoubleSide,
+              depthWrite: false
+            });
+            
+            const cloud = new THREE.Mesh(cloudGeometry, cloudMaterial);
+            cloud.position.set(
+              (Math.random() - 0.5) * 10000,
+              (Math.random() - 0.5) * 5000,
+              (Math.random() - 0.5) * 10000
+            );
+            cloud.rotation.set(
+              Math.random() * Math.PI,
+              Math.random() * Math.PI,
+              Math.random() * Math.PI
+            );
+            cloud.scale.setScalar(Math.random() * 2 + 1);
+            
+            cloudGroup.add(cloud);
+          }
+          
+          scene.add(cloudGroup);
+          return cloudGroup;
+        };
+        
+        const gasClouds = createGasClouds();
+        
+        // ========== PARTICLE TRAILS FOR PLANETS ==========
+        const createPlanetTrails = () => {
+          const trailGroup = new THREE.Group();
+          trailGroup.name = 'planetTrails';
+          
+          planets.forEach((planet, index) => {
+            const trailCount = 200;
+            const trailGeometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(trailCount * 3);
+            const alphas = new Float32Array(trailCount);
+            
+            // Initialize trail positions
+            for (let i = 0; i < trailCount; i++) {
+              const angle = planet.angle - (i / trailCount) * Math.PI * 0.5;
+              positions[i * 3] = Math.cos(angle) * planet.distance;
+              positions[i * 3 + 1] = 0;
+              positions[i * 3 + 2] = Math.sin(angle) * planet.distance;
+              alphas[i] = 1.0 - (i / trailCount);
+            }
+            
+            trailGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            trailGeometry.setAttribute('alpha', new THREE.BufferAttribute(alphas, 1));
+            
+            const trailMaterial = new THREE.ShaderMaterial({
+              uniforms: {
+                color: { value: new THREE.Color().setHex(planetData[index].color) },
+                time: { value: 0 }
+              },
+              vertexShader: `
+                attribute float alpha;
+                varying float vAlpha;
+                
+                void main() {
+                  vAlpha = alpha;
+                  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+              `,
+              fragmentShader: `
+                uniform vec3 color;
+                varying float vAlpha;
+                
+                void main() {
+                  gl_FragColor = vec4(color, vAlpha * 0.3);
+                }
+              `,
+              transparent: true,
+              blending: THREE.AdditiveBlending,
+              depthWrite: false
+            });
+            
+            const trail = new THREE.Line(trailGeometry, trailMaterial);
+            trail.userData = { planet: planet, index: index };
+            trailGroup.add(trail);
+          });
+          
+          scene.add(trailGroup);
+          return trailGroup;
+        };
+        
+        // Only create trails on desktop for performance
+        let planetTrails = null;
+        if (!mobile) {
+          planetTrails = createPlanetTrails();
+        }
+        
         // ========== CONTROLS ==========
         let mouseX = 0, mouseY = 0;
         let isMouseDown = false;
@@ -642,10 +911,6 @@ const UniverseSimulationParallel = () => {
           // Mouse wheel zoom - exponential speed for fast traversal
           renderer.domElement.addEventListener('wheel', (e) => {
             e.preventDefault();
-            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            // Exponential speed based on distance
-            const distance = camera.position.length();
-            const speed = Math.pow(distance, 1.2) * 0.01;
             const zoomFactor = e.deltaY > 0 ? 1.15 : 0.85; // 15% change per scroll
             camera.position.multiplyScalar(zoomFactor);
           });
@@ -655,20 +920,11 @@ const UniverseSimulationParallel = () => {
         // ========== ANIMATION LOOP ==========
         let time = 0;
         const clock = new THREE.Clock();
-        let frameCount = 0;
-        let lastFpsUpdate = 0;
         
         const animate = () => {
           animationId = requestAnimationFrame(animate);
           const deltaTime = clock.getDelta();
           time += deltaTime;
-          frameCount++;
-          
-          // Update FPS counter
-          if (time - lastFpsUpdate > 1) {
-            frameCount = 0;
-            lastFpsUpdate = time;
-          }
           
           // Update Nanite system (parallel processing) - don't await in animation loop
           if (naniteSystemRef.current) {
@@ -686,19 +942,64 @@ const UniverseSimulationParallel = () => {
           }
           
           // Update planets
-          planets.forEach(planet => {
+          planets.forEach((planet, index) => {
             planet.angle += deltaTime * planet.speed * 0.0001;
             planet.mesh.position.x = Math.cos(planet.angle) * planet.distance;
             planet.mesh.position.z = Math.sin(planet.angle) * planet.distance;
             planet.mesh.rotation.y += deltaTime * 0.5;
-          });
-          
-          // Update shader uniforms
-          scene.traverse((object) => {
-            if (object.material && object.material.uniforms && object.material.uniforms.time) {
-              object.material.uniforms.time.value = time;
+            
+            // Update planet trails
+            if (planetTrails && planetTrails.children[index]) {
+              const trail = planetTrails.children[index];
+              const positions = trail.geometry.attributes.position.array;
+              const trailCount = positions.length / 3;
+              
+              // Shift positions back
+              for (let i = trailCount - 1; i > 0; i--) {
+                positions[i * 3] = positions[(i - 1) * 3];
+                positions[i * 3 + 1] = positions[(i - 1) * 3 + 1];
+                positions[i * 3 + 2] = positions[(i - 1) * 3 + 2];
+              }
+              
+              // Add new position at front
+              positions[0] = planet.mesh.position.x;
+              positions[1] = planet.mesh.position.y;
+              positions[2] = planet.mesh.position.z;
+              
+              trail.geometry.attributes.position.needsUpdate = true;
             }
           });
+          
+          // Update shader uniforms and particle effects
+          scene.traverse((object) => {
+            if (object.material && object.material.uniforms) {
+              if (object.material.uniforms.time) {
+                object.material.uniforms.time.value = time;
+              }
+              // Update dust camera position
+              if (object.name === 'cosmicDust' && object.material.uniforms.cameraPos) {
+                object.material.uniforms.cameraPos.value.copy(camera.position);
+              }
+            }
+          });
+          
+          // LOD for particle effects based on camera speed
+          const cameraSpeed = new THREE.Vector3(
+            camera.position.x - (camera.userData.lastPosition?.x || camera.position.x),
+            camera.position.y - (camera.userData.lastPosition?.y || camera.position.y),
+            camera.position.z - (camera.userData.lastPosition?.z || camera.position.z)
+          ).length();
+          
+          // Hide particles when moving very fast
+          if (cosmicDust) {
+            cosmicDust.visible = cameraSpeed < 1000;
+          }
+          if (gasClouds) {
+            gasClouds.visible = cameraSpeed < 5000;
+          }
+          
+          // Store last position
+          camera.userData.lastPosition = camera.position.clone();
           
           // Camera movement - only for desktop when pointer is locked
           if (!mobile) {

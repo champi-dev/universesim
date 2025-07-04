@@ -235,7 +235,7 @@ function isInFrustum(bounds, planes) {
  * Batch compute screen-space errors
  */
 function handleErrorComputation(data) {
-  const { clusters, camera, screenWidth, screenHeight } = data;
+  const { clusters, camera, screenHeight } = data;
   const errors = new Float32Array(clusters.length);
   
   clusters.forEach((cluster, index) => {

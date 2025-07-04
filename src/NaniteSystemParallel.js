@@ -187,6 +187,9 @@ export class ParallelNaniteSystem {
       case 'SIMPLIFICATION_COMPLETE':
         this.processSimplifiedGeometry(data.result);
         break;
+        
+      default:
+        console.warn('Unknown worker message type:', type);
     }
     
     // Mark task complete
