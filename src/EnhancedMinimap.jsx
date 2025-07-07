@@ -280,6 +280,32 @@ const EnhancedMinimap = ({ camera, scene, onTeleport, smoothNav }) => {
       onTeleport(worldX, camera.position.y, worldZ);
     }
   };
+  
+  const handleTouch = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (e.touches.length === 1) {
+      const canvas = canvasRef.current;
+      const rect = canvas.getBoundingClientRect();
+      
+      const touch = e.touches[0];
+      const x = touch.clientX - rect.left;
+      const y = touch.clientY - rect.top;
+
+      // Convert to world coordinates using current scale
+      const worldX = ((x / mapSize) * (mapScale * 2)) - mapScale;
+      const worldZ = ((y / mapSize) * (mapScale * 2)) - mapScale;
+
+      // Add click feedback
+      setClickFeedback({ x, y, time: Date.now() });
+
+      // Teleport with current height maintained
+      if (onTeleport) {
+        onTeleport(worldX, camera.position.y, worldZ);
+      }
+    }
+  };
 
   return (
     <div 
@@ -299,17 +325,22 @@ const EnhancedMinimap = ({ camera, scene, onTeleport, smoothNav }) => {
         transform: isHovered && !isMobile ? 'scale(1.05)' : 'scale(1)',
         zIndex: 1000,
         touchAction: 'none',
+        WebkitTouchCallout: 'none',
+        WebkitUserSelect: 'none',
+        userSelect: 'none',
       }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      onMouseEnter={() => !isMobile && setIsHovered(true)}
+      onMouseLeave={() => !isMobile && setIsHovered(false)}
+      onTouchStart={(e) => { e.preventDefault(); }}
     >
       <canvas 
         ref={canvasRef} 
         width={mapSize} 
         height={mapSize}
         onClick={handleClick}
-        onTouchEnd={handleClick}
-        style={{ display: 'block' }}
+        onTouchStart={handleTouch}
+        onTouchMove={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        style={{ display: 'block', touchAction: 'none' }}
       />
       <div 
         style={{
