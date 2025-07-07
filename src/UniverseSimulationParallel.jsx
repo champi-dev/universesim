@@ -1,9 +1,10 @@
 import React, { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
 import { ParallelNaniteSystem, createParallelNanitePlanet, createParallelNaniteGalaxy } from "./NaniteSystemParallel";
-import { preloadedAsteroids } from "./data/preloadedData";
+import { preloadedAsteroids, preloadedNebulae } from "./data/preloadedData";
 import { STAR_COLORS, NEBULA_COLORS } from "./data/astronomicalColors";
 import Minimap from "./Minimap";
+import { createJWSTNebula } from "./JWSTNebula";
 
 // Constants
 const AU_SCALE = 100;
@@ -12,7 +13,10 @@ const TIME_SCALE = 1440; // 1 day = 1 minute
 const UniverseSimulationParallel = () => {
   const mountRef = useRef(null);
   const [error, setError] = useState(null);
-  const keysRef = useRef({});
+  const keysRef = useRef({
+    w: false, s: false, a: false, d: false,
+    ' ': false, shift: false, control: false, p: false
+  });
   const sceneRef = useRef(null);
   const naniteSystemRef = useRef(null);
   const [camera, setCamera] = useState(null);
@@ -1138,13 +1142,29 @@ const UniverseSimulationParallel = () => {
           return nebulaGroup;
         };
         
-        // NEBULAE DISABLED - they look unrealistic as bright spheres
-        // const nebulaCount = mobile ? 2 : 5; // Fewer nebulae
-        // preloadedNebulae.slice(0, nebulaCount).forEach((nebula, i) => {
-        //   nebulaGroup.add(createNebula(nebula, i));
-        // });
+        // Add JWST-style nebulae
+        const nebulaCount = mobile ? 3 : 8; // Select a subset for performance
+        const selectedNebulae = [
+          // Pick diverse and famous nebulae
+          preloadedNebulae.find(n => n.name.includes('Orion')),
+          preloadedNebulae.find(n => n.name.includes('Eagle')),
+          preloadedNebulae.find(n => n.name.includes('Crab')),
+          preloadedNebulae.find(n => n.name.includes('Ring')),
+          preloadedNebulae.find(n => n.name.includes('Helix')),
+          preloadedNebulae.find(n => n.name.includes('Carina')),
+          preloadedNebulae.find(n => n.name.includes('Horsehead')),
+          preloadedNebulae.find(n => n.name.includes('Rosette'))
+        ].filter(Boolean).slice(0, nebulaCount);
         
-        // scene.add(nebulaGroup);
+        const jwstNebulaGroup = new THREE.Group();
+        jwstNebulaGroup.name = 'jwst-nebulae';
+        
+        selectedNebulae.forEach((nebula) => {
+          const jwstNebula = createJWSTNebula(nebula, mobile);
+          jwstNebulaGroup.add(jwstNebula);
+        });
+        
+        scene.add(jwstNebulaGroup);
         
         // ========== COSMIC DUST PARTICLES ==========
         const createCosmicDust = () => {
@@ -1594,7 +1614,11 @@ const UniverseSimulationParallel = () => {
             } else if (e.key === 'Escape' && isPointerLocked) {
               document.exitPointerLock();
             } else if (e.key === 'p' || e.key === 'P') {
-              // Press P to log current camera position and rotation
+              // Press P to log current camera position and movement state
+              console.log('Camera position:', camera.position);
+              console.log('Camera rotation:', { pitch, yaw });
+              console.log('Keys pressed:', Object.entries(keysRef.current).filter(([k, v]) => v).map(([k]) => k));
+              keysRef.current['p'] = true;
             }
           });
           
@@ -1834,6 +1858,12 @@ const UniverseSimulationParallel = () => {
                 if (object.name === 'cosmicDust' && object.material.uniforms.cameraPos) {
                   object.material.uniforms.cameraPos.value.copy(camera.position);
                 }
+                // Update nebula camera position for parallax effect
+                if (object.parent && object.parent.name && object.parent.name.startsWith('nebula-')) {
+                  if (object.material.uniforms.cameraPos) {
+                    object.material.uniforms.cameraPos.value.copy(camera.position);
+                  }
+                }
               }
               
               // Animate nebula layers only when visible
@@ -1860,7 +1890,29 @@ const UniverseSimulationParallel = () => {
             if (cosmicDust) fadeObject(cosmicDust, 0, deltaTime, 3);
             // if (gasClouds) fadeObject(gasClouds, 0, deltaTime, 3); // DISABLED
             
-            // Nebula fading disabled - nebulae have been removed
+            // Update JWST nebulae visibility based on distance
+            if (jwstNebulaGroup) {
+              jwstNebulaGroup.children.forEach(nebula => {
+                const distance = camera.position.distanceTo(nebula.position);
+                const maxDistance = 50000;
+                
+                if (distance > maxDistance) {
+                  fadeObject(nebula, 0, deltaTime, 2);
+                } else {
+                  // Fade in/out based on distance
+                  const opacity = 1.0 - (distance / maxDistance);
+                  fadeObject(nebula, opacity, deltaTime, 3);
+                  
+                  // LOD: Reduce particle count when far
+                  nebula.children.forEach(child => {
+                    if (child.isPoints && child.material.uniforms) {
+                      const lodFactor = distance > 20000 ? 0.5 : 1.0;
+                      child.visible = Math.random() < lodFactor;
+                    }
+                  });
+                }
+              });
+            }
             
             // Fade detail for various objects based on distance
             scene.traverse((object) => {
