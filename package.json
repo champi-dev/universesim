@@ -30,7 +30,7 @@
   "bugs": {
     "url": "https://github.com/champi-dev/universesim/issues"
   },
-  "homepage": "https://github.com/champi-dev/universesim#readme",
+  "homepage": "https://universesim.vercel.app/champi-dev/universesim",
   "dependencies": {
     "three": "^0.178.0"
   },
