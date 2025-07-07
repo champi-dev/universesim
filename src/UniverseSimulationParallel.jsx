@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { ParallelNaniteSystem, createParallelNanitePlanet, createParallelNaniteGalaxy } from "./NaniteSystemParallel";
 import { preloadedAsteroids } from "./data/preloadedData";
 import { STAR_COLORS, NEBULA_COLORS } from "./data/astronomicalColors";
+import Minimap from "./Minimap";
 
 // Constants
 const AU_SCALE = 100;
@@ -14,13 +15,15 @@ const UniverseSimulationParallel = () => {
   const keysRef = useRef({});
   const sceneRef = useRef(null);
   const naniteSystemRef = useRef(null);
+  const [camera, setCamera] = useState(null);
+  const cameraRef = useRef(null);
+  const controlsResetRef = useRef(null);
 
   useEffect(() => {
     if (!mountRef.current) return;
     
     let renderer = null;
     let animationId = null;
-    let camera = null;
     
     const initAsync = async () => {
       try {
@@ -39,7 +42,7 @@ const UniverseSimulationParallel = () => {
         sceneRef.current = scene;
         
         // Camera with mobile-optimized FOV
-        camera = new THREE.PerspectiveCamera(
+        const camera = new THREE.PerspectiveCamera(
           mobile ? 60 : 45, 
           width / height, 
           0.1, 
@@ -50,6 +53,15 @@ const UniverseSimulationParallel = () => {
         const startPos = new THREE.Vector3(AU_SCALE * 0.8, AU_SCALE * 0.5, AU_SCALE * 0.8);
         camera.position.copy(startPos);
         camera.lookAt(0, 0, 0); // Look at sun
+        
+        // Store camera references
+        cameraRef.current = camera;
+        setCamera(camera);
+        
+        // Expose camera for testing (dev only)
+        if (process.env.NODE_ENV === 'development') {
+          window.__camera__ = camera;
+        }
         
         // Renderer with HDR and optimizations
         renderer = new THREE.WebGLRenderer({ 
@@ -1446,6 +1458,15 @@ const UniverseSimulationParallel = () => {
         let lastTapTime = 0;
         let doubleTapTimer = null;
         
+        // Create controls reset function
+        controlsResetRef.current = () => {
+          rotationVelocity.x = 0;
+          rotationVelocity.y = 0;
+          mobileMovement.forward = 0;
+          mobileMovement.strafe = 0;
+          mobileMovement.up = 0;
+        };
+        
         // Mobile touch controls
         if (mobile) {
           renderer.domElement.addEventListener('touchstart', (e) => {
@@ -1683,6 +1704,10 @@ const UniverseSimulationParallel = () => {
           animationId = requestAnimationFrame(animate);
           const deltaTime = clock.getDelta();
           time += deltaTime;
+          
+          // Get current camera reference
+          const camera = cameraRef.current;
+          if (!camera) return;
           
           // Frame limiting when performance is poor
           const now = performance.now();
@@ -1972,9 +1997,13 @@ const UniverseSimulationParallel = () => {
           const width = window.innerWidth;
           const height = window.innerHeight;
           
-          camera.aspect = width / height;
-          camera.updateProjectionMatrix();
-          renderer.setSize(width, height);
+          if (cameraRef.current) {
+            cameraRef.current.aspect = width / height;
+            cameraRef.current.updateProjectionMatrix();
+          }
+          if (renderer) {
+            renderer.setSize(width, height);
+          }
         };
         window.addEventListener('resize', handleResize);
         
@@ -2000,6 +2029,30 @@ const UniverseSimulationParallel = () => {
     initAsync();
   }, []);
 
+  const handleTeleport = (x, y, z) => {
+    if (cameraRef.current) {
+      cameraRef.current.position.set(x, y, z);
+      cameraRef.current.updateMatrixWorld(true);
+      
+      // Update lastPosition to prevent speed calculation issues
+      if (cameraRef.current.userData) {
+        cameraRef.current.userData.lastPosition = cameraRef.current.position.clone();
+      }
+      
+      // Reset any movement states
+      if (keysRef.current) {
+        Object.keys(keysRef.current).forEach(key => {
+          keysRef.current[key] = false;
+        });
+      }
+      
+      // Reset rotation and mobile movement
+      if (controlsResetRef.current) {
+        controlsResetRef.current();
+      }
+    }
+  };
+
   if (error) {
     return (
       <div style={{ color: 'red', padding: '20px', backgroundColor: 'black' }}>
@@ -2012,6 +2065,13 @@ const UniverseSimulationParallel = () => {
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh', backgroundColor: 'black' }}>
       <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
+      {camera && sceneRef.current && (
+        <Minimap 
+          camera={camera} 
+          scene={sceneRef.current} 
+          onTeleport={handleTeleport} 
+        />
+      )}
     </div>
   );
 };

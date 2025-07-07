@@ -248,7 +248,6 @@ export class ParallelNaniteSystem {
    * Create LOD hierarchy with parallel processing
    */
   async createLODHierarchy(mesh, levels = 5) {
-    const startTime = performance.now();
     
     // Generate LODs in parallel
     const lodPromises = [];
