@@ -7,6 +7,7 @@ import EnhancedMinimap from "./EnhancedMinimap";
 import { createJWSTNebula } from "./JWSTNebula";
 import { createObservableUniverse } from "./ObservableUniverse";
 import { SmoothNavigation } from "./SmoothNavigation";
+import { CameraFocusManager } from "./CameraFocusManager";
 
 // Constants
 const AU_SCALE = 100;
@@ -25,6 +26,7 @@ const UniverseSimulationParallel = () => {
   const cameraRef = useRef(null);
   const controlsResetRef = useRef(null);
   const smoothNavRef = useRef(null);
+  const cameraFocusManagerRef = useRef(null);
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -1746,6 +1748,10 @@ const UniverseSimulationParallel = () => {
           group.visible = group.userData.groupOpacity > 0.01;
         };
         
+        // Initialize camera focus manager
+        cameraFocusManagerRef.current = new CameraFocusManager(camera, scene);
+        console.log('Camera focus manager initialized');
+        
         const animate = () => {
           animationId = requestAnimationFrame(animate);
           const deltaTime = clock.getDelta();
@@ -1999,7 +2005,14 @@ const UniverseSimulationParallel = () => {
               const rotationUpdate = smoothNavRef.current.update(keysRef.current, deltaTime, pitch, yaw);
               pitch = rotationUpdate.pitch;
               yaw = rotationUpdate.yaw;
-            } else {
+            }
+            
+            // Update camera focus manager
+            if (cameraFocusManagerRef.current) {
+              cameraFocusManagerRef.current.update();
+            }
+            
+            if (!smoothNavRef.current) {
               // Fallback to old movement system
               if (rotationVelocity) {
                 yaw += rotationVelocity.x;
