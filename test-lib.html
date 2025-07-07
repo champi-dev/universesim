@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universe Simulation Library Test</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #universe-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+        #status {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="universe-container"></div>
+    <div id="info">
+        <h3>Universe Simulation Test</h3>
+        <p>WASD - Move | Mouse - Look | Space/Shift - Up/Down</p>
+        <button onclick="focusEarth()">Focus on Earth</button>
+        <button onclick="focusSun()">Focus on Sun</button>
+        <button onclick="togglePause()">Pause/Play</button>
+    </div>
+    <div id="status">Status: Initializing...</div>
+
+    <script type="module">
+        // Import from the lib directory to test the package
+        import UniverseSimulation from './lib/index.js';
+
+        let universe;
+        const status = document.getElementById('status');
+
+        async function init() {
+            try {
+                status.textContent = 'Status: Creating universe...';
+                
+                // Create universe instance
+                universe = new UniverseSimulation({
+                    container: document.getElementById('universe-container')
+                });
+
+                // Initialize
+                await universe.init();
+                status.textContent = 'Status: Adding sun...';
+
+                // Add sun
+                await universe.addSun({
+                    name: 'sun',
+                    radius: 10
+                });
+
+                status.textContent = 'Status: Adding planets...';
+
+                // Add planets
+                const planets = [
+                    { name: 'mercury', radius: 0.4, distance: 39, speed: 0.002, color: 0x888888 },
+                    { name: 'venus', radius: 0.9, distance: 72, speed: 0.0015, color: 0xffd700 },
+                    { name: 'earth', radius: 1, distance: 100, speed: 0.001, color: 0x2233ff },
+                    { name: 'mars', radius: 0.5, distance: 152, speed: 0.0008, color: 0xff4444 },
+                    { name: 'jupiter', radius: 11, distance: 520, speed: 0.0004, color: 0xaa8855 },
+                    { name: 'saturn', radius: 9, distance: 950, speed: 0.0003, color: 0xffcc99 }
+                ];
+
+                for (const planet of planets) {
+                    await universe.addPlanet(planet);
+                }
+
+                status.textContent = 'Status: Adding galaxy...';
+
+                // Add a distant galaxy
+                await universe.addGalaxy({
+                    name: 'andromeda',
+                    position: new THREE.Vector3(50000, 0, 0),
+                    type: 'spiral',
+                    scale: 5,
+                    starCount: 10000
+                });
+
+                status.textContent = 'Status: Adding nebula...';
+
+                // Add a nebula
+                universe.addNebula({
+                    name: 'orion',
+                    position: new THREE.Vector3(1000, 500, -1000),
+                    scale: 200
+                });
+
+                // Start simulation
+                universe.start();
+                status.textContent = 'Status: Running! Use controls to explore.';
+
+                // Make functions available globally
+                window.universe = universe;
+                window.focusEarth = () => universe.focusOn('earth', { distance: 5 });
+                window.focusSun = () => universe.focusOn('sun', { distance: 50 });
+                window.togglePause = () => {
+                    const isPaused = universe.togglePause();
+                    status.textContent = `Status: ${isPaused ? 'Paused' : 'Running'}`;
+                };
+
+                // Handle resize
+                window.addEventListener('resize', () => {
+                    universe.resize(window.innerWidth, window.innerHeight);
+                });
+
+            } catch (error) {
+                console.error('Error initializing universe:', error);
+                status.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        // Start when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
+        } else {
+            init();
+        }
+    </script>
+</body>
+</html>

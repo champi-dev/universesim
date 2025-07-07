@@ -1,19 +1,62 @@
 {
   "name": "universe-simulation",
-  "version": "0.1.0",
-  "private": true,
+  "version": "1.0.1",
+  "description": "A powerful JavaScript library for creating interactive universe simulations with three.js",
+  "main": "lib/index.js",
+  "module": "lib/index.js",
+  "files": [
+    "lib/**/*",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "universe",
+    "simulation",
+    "space",
+    "galaxy",
+    "astronomy",
+    "three.js",
+    "3d",
+    "webgl",
+    "cosmos",
+    "physics"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/champi-dev/universesim.git"
+  },
+  "bugs": {
+    "url": "https://github.com/champi-dev/universesim/issues"
+  },
+  "homepage": "https://github.com/champi-dev/universesim#readme",
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
     "three": "^0.178.0"
+  },
+  "peerDependencies": {
+    "react": ">=16.8.0",
+    "react-dom": ">=16.8.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    }
   },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "build:lib": "node scripts/build-lib.js",
+    "prepublishOnly": "npm run build:lib",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
   "devDependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",
     "workbox-cacheable-response": "^7.3.0",
     "workbox-expiration": "^7.3.0",

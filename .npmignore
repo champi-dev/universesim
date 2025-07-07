@@ -1,0 +1,55 @@
+# Source files
+src/
+public/
+build/
+
+# Development files
+.gitignore
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor directories
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+test_photorealistic.html
+verify_working.html
+*.test.js
+*.spec.js
+
+# Documentation source files
+*.md
+!README.md
+
+# Config files
+vercel.json
+.eslintrc*
+.prettierrc*
+
+# Build tools
+scripts/
+!scripts/build-lib.js
+
+# Dependencies
+node_modules/
+
+# React app files
+CLAUDE.md
+App.css
+App.js
+index.css
+index.js
+serviceWorkerRegistration.js
