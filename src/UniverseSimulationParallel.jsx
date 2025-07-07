@@ -3,8 +3,10 @@ import * as THREE from "three";
 import { ParallelNaniteSystem, createParallelNanitePlanet, createParallelNaniteGalaxy } from "./NaniteSystemParallel";
 import { preloadedAsteroids, preloadedNebulae } from "./data/preloadedData";
 import { STAR_COLORS, NEBULA_COLORS } from "./data/astronomicalColors";
-import Minimap from "./Minimap";
+import EnhancedMinimap from "./EnhancedMinimap";
 import { createJWSTNebula } from "./JWSTNebula";
+import { createObservableUniverse } from "./ObservableUniverse";
+import { SmoothNavigation } from "./SmoothNavigation";
 
 // Constants
 const AU_SCALE = 100;
@@ -22,6 +24,7 @@ const UniverseSimulationParallel = () => {
   const [camera, setCamera] = useState(null);
   const cameraRef = useRef(null);
   const controlsResetRef = useRef(null);
+  const smoothNavRef = useRef(null);
 
   useEffect(() => {
     if (!mountRef.current) return;
@@ -45,12 +48,12 @@ const UniverseSimulationParallel = () => {
         scene.fog = new THREE.FogExp2(0x000000, 0.00000001);
         sceneRef.current = scene;
         
-        // Camera with mobile-optimized FOV
+        // Camera with mobile-optimized FOV and extended far plane for universe scale
         const camera = new THREE.PerspectiveCamera(
           mobile ? 60 : 45, 
           width / height, 
           0.1, 
-          100000000
+          1e15 // Extended to handle universe scale (billions of light-years)
         );
         
         // Start camera position with sun occupying ~30% of screen
@@ -61,6 +64,9 @@ const UniverseSimulationParallel = () => {
         // Store camera references
         cameraRef.current = camera;
         setCamera(camera);
+        
+        // Initialize smooth navigation
+        smoothNavRef.current = new SmoothNavigation(camera);
         
         // Expose camera for testing (dev only)
         if (process.env.NODE_ENV === 'development') {
@@ -931,6 +937,17 @@ const UniverseSimulationParallel = () => {
           }
         }
         
+        // ========== OBSERVABLE UNIVERSE ==========
+        // Add the full observable universe with proper scale
+        createObservableUniverse(scene, mobile);
+        console.log('Observable universe created with:', {
+          milkyWay: 'Full spiral structure around solar system',
+          localGroup: 'Andromeda, Triangulum, Magellanic Clouds',
+          cosmicWeb: 'Galaxy clusters and filaments',
+          quasars: 'Distant active galactic nuclei',
+          cmb: mobile ? 'Disabled on mobile' : 'Cosmic microwave background sphere'
+        });
+        
         // ========== NEBULAE with volumetric rendering ==========
         const nebulaGroup = new THREE.Group();
         nebulaGroup.name = 'nebulae';
@@ -1597,9 +1614,14 @@ const UniverseSimulationParallel = () => {
           document.addEventListener('mousemove', (e) => {
             if (!isPointerLocked) return;
             
-            // Add to rotation velocity for smooth movement
-            rotationVelocity.x = -e.movementX * 0.005; // Inverted for natural feel
-            rotationVelocity.y = e.movementY * 0.005;
+            // Use smooth navigation for rotation
+            if (smoothNavRef.current) {
+              smoothNavRef.current.addRotation(e.movementX * 0.002, e.movementY * 0.002);
+            } else {
+              // Fallback to old system
+              rotationVelocity.x = -e.movementX * 0.005;
+              rotationVelocity.y = e.movementY * 0.005;
+            }
           });
           
           // Keyboard controls
@@ -1972,44 +1994,44 @@ const UniverseSimulationParallel = () => {
               camera.position.addScaledVector(up, moveDistance * mobileMovement.up);
             }
           } else {
-            // Apply smooth rotation with damping using pitch/yaw
-            if (rotationVelocity) {
-              yaw += rotationVelocity.x;  // Fixed: was inverted
-              pitch -= rotationVelocity.y;
+            // Use smooth navigation system
+            if (smoothNavRef.current) {
+              const rotationUpdate = smoothNavRef.current.update(keysRef.current, deltaTime, pitch, yaw);
+              pitch = rotationUpdate.pitch;
+              yaw = rotationUpdate.yaw;
+            } else {
+              // Fallback to old movement system
+              if (rotationVelocity) {
+                yaw += rotationVelocity.x;
+                pitch -= rotationVelocity.y;
+                
+                const quaternion = new THREE.Quaternion();
+                const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
+                quaternion.setFromEuler(euler);
+                camera.quaternion.copy(quaternion);
+                
+                rotationVelocity.x *= 0.85;
+                rotationVelocity.y *= 0.85;
+              }
               
-              // No limits - allow full 360-degree rotation
-              // Apply rotation using quaternion to avoid gimbal lock
-              const quaternion = new THREE.Quaternion();
-              const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
-              quaternion.setFromEuler(euler);
-              camera.quaternion.copy(quaternion);
+              const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+              const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+              const up = new THREE.Vector3(0, 1, 0);
               
-              // Damping for smooth stop
-              rotationVelocity.x *= 0.85;
-              rotationVelocity.y *= 0.85;
+              const cameraDistance = camera.position.length();
+              let baseSpeed = Math.pow(cameraDistance, 1.1) * 0.001;
+              baseSpeed = Math.max(10, baseSpeed);
+              
+              const speed = keysRef.current['shift'] ? baseSpeed * 10 : baseSpeed;
+              const moveDistance = speed * deltaTime * 60;
+              
+              if (keysRef.current['w']) camera.position.addScaledVector(forward, moveDistance);
+              if (keysRef.current['s']) camera.position.addScaledVector(forward, -moveDistance);
+              if (keysRef.current['a']) camera.position.addScaledVector(right, -moveDistance);
+              if (keysRef.current['d']) camera.position.addScaledVector(right, moveDistance);
+              if (keysRef.current[' ']) camera.position.addScaledVector(up, moveDistance);
+              if (keysRef.current['control']) camera.position.addScaledVector(up, -moveDistance);
             }
-            
-            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-            const up = new THREE.Vector3(0, 1, 0);
-            
-            // Exponential speed scaling for fast universe traversal
-            const cameraDistance = camera.position.length();
-            let baseSpeed = Math.pow(cameraDistance, 1.1) * 0.001;
-            
-            // Minimum speed to ensure movement at close distances
-            baseSpeed = Math.max(10, baseSpeed);
-            
-            // Shift for 10x boost
-            const speed = keysRef.current['shift'] ? baseSpeed * 10 : baseSpeed;
-            const moveDistance = speed * deltaTime * 60; // Normalize to 60fps
-            
-            if (keysRef.current['w']) camera.position.addScaledVector(forward, moveDistance);
-            if (keysRef.current['s']) camera.position.addScaledVector(forward, -moveDistance);
-            if (keysRef.current['a']) camera.position.addScaledVector(right, -moveDistance);
-            if (keysRef.current['d']) camera.position.addScaledVector(right, moveDistance);
-            if (keysRef.current[' ']) camera.position.addScaledVector(up, moveDistance);
-            if (keysRef.current['control']) camera.position.addScaledVector(up, -moveDistance);
             
             // Debug: Log camera position when P is pressed
             if (keysRef.current['p']) {
@@ -2102,6 +2124,11 @@ const UniverseSimulationParallel = () => {
       if (controlsResetRef.current) {
         controlsResetRef.current();
       }
+      
+      // Reset smooth navigation
+      if (smoothNavRef.current) {
+        smoothNavRef.current.reset();
+      }
     }
   };
 
@@ -2118,10 +2145,11 @@ const UniverseSimulationParallel = () => {
     <div style={{ position: 'relative', width: '100vw', height: '100vh', backgroundColor: 'black' }}>
       <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
       {camera && sceneRef.current && (
-        <Minimap 
+        <EnhancedMinimap 
           camera={camera} 
           scene={sceneRef.current} 
-          onTeleport={handleTeleport} 
+          onTeleport={handleTeleport}
+          smoothNav={smoothNavRef.current}
         />
       )}
     </div>
